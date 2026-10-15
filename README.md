@@ -77,3 +77,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 ## 本地数据
 
 句库和 Pi 心跳保存在 `~/Library/Application Support/AgentLantern/`；主题、声音和浮窗位置由 macOS 偏好设置保存。仓库与发布包不包含用户的会话记录、配置凭据或运行数据。
+
+## 开源许可
+
+本项目采用 [MIT License](LICENSE)，允许使用、修改、分发和商业使用，分发时须保留版权声明和许可证。
