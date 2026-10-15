@@ -68,6 +68,8 @@ final class Model: ObservableObject {
     @Published var theme = ThemeChoice(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "dark") ?? .dark
     @Published var systemDark = false
     @Published var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
+    @Published var animationsEnabled = UserDefaults.standard.object(forKey: "animationsEnabled") as? Bool ?? true
+    @Published var sessionActive = true
     @Published var showIdle = UserDefaults.standard.bool(forKey: "showIdle")
     @Published var quoteInterval = UserDefaults.standard.double(forKey: "quoteInterval") == 0
         ? 20.0 : UserDefaults.standard.double(forKey: "quoteInterval")
@@ -122,6 +124,15 @@ final class Model: ObservableObject {
     var effectiveDark: Bool { theme == .dark || (theme == .system && systemDark) }
     var palette: Palette { effectiveDark ? .dark : (theme == .paper ? .paper : .light) }
     var color: Color { waiting > 0 || degraded ? palette.warning : palette.accent }
+    var activityPhase: ActivityPhase {
+        if !monitorHealthy && !demo { return .connecting }
+        if running > 0 { return .working }
+        if waiting > 0 { return .waiting }
+        if finished { return .completed }
+        return degraded ? .connecting : .idle
+    }
+    var activityColor: Color { activityPhase == .waiting || activityPhase == .connecting ? palette.warning : palette.accent }
+    var animateWork: Bool { animationsEnabled && shouldShow && sessionActive }
     var title: String {
         if paused { return "已暂停显示" }
         if !monitorHealthy && !demo { return "正在连接任务状态" }
@@ -279,25 +290,6 @@ final class Model: ObservableObject {
     }
 }
 
-struct WorkingLight: View {
-    var color: Color
-    var active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-    var body: some View {
-        ZStack {
-            Circle().fill(color.opacity(0.06)).frame(width: 42, height: 42)
-            Circle().stroke(color.opacity(pulse && active ? 0.05 : 0.25), lineWidth: 1)
-                .frame(width: 27, height: 27).scaleEffect(pulse && active ? 1.22 : 0.92)
-            Image(systemName: active ? "sparkle" : "moon")
-                .font(.system(size: 18, weight: .medium)).foregroundStyle(color)
-        }
-        .onAppear { if !reduceMotion { pulse = true } }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 2.3).repeatForever(autoreverses: true), value: pulse)
-        .accessibilityHidden(true)
-    }
-}
-
 struct LanternView: View {
     @ObservedObject var model: Model
     var openMenu: () -> Void
@@ -305,14 +297,20 @@ struct LanternView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                WorkingLight(color: model.color, active: !model.tasks.isEmpty)
+                WorkingLight(color: model.activityColor, warning: palette.warning, phase: model.activityPhase,
+                             hasWaiting: model.waiting > 0, animationsEnabled: model.animateWork)
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
                         Text("小灯").font(.system(size: 10, weight: .semibold)).tracking(1.5)
                             .foregroundStyle(palette.text(0.44))
                         if model.demo { Text("预览").font(.system(size: 9)).foregroundStyle(palette.warning) }
                     }
-                    Text(model.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(palette.text(0.94))
+                    HStack(spacing: 7) {
+                        Text(model.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(palette.text(0.94))
+                        if model.activityPhase == .working {
+                            WorkingSignal(color: palette.accent, animationsEnabled: model.animateWork)
+                        }
+                    }
                 }
                 Spacer(minLength: 0)
                 Button(action: openMenu) {
@@ -429,6 +427,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var item: NSStatusItem!
     var menu: NSMenu!
     var changingFrame = false
+    var workspaceObservers: [NSObjectProtocol] = []
+    var frameTimer: Timer?
     let args = CommandLine.arguments
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -446,6 +446,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Command-line theme overrides are only for artifact rendering; they do not change saved preferences.
         if let index = args.firstIndex(of: "--theme"), args.indices.contains(index + 1),
            let theme = ThemeChoice(rawValue: args[index + 1]) { model.theme = theme }
+        if model.preview, let index = args.firstIndex(of: "--preview-state"), args.indices.contains(index + 1) {
+            switch args[index + 1] {
+            case "waiting": model.tasks = model.tasks.map { var task = $0; task.state = "waiting"; return task }
+            case "idle": model.tasks = []
+            case "completed": model.tasks = []; model.finished = true
+            default: break
+            }
+        }
+        if args.contains("--no-animation") { model.animationsEnabled = false }
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
+            workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.model.sessionActive = false
+            })
+        }
+        for name in [NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.screensDidWakeNotification] {
+            workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.model.sessionActive = true
+            })
+        }
         panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 334, height: 149),
                               styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "小灯 · 智能体工作灯"
@@ -483,6 +503,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 self?.saveSnapshot(path: self?.args[index + 1] ?? "")
                 NSApp.terminate(nil)
+            }
+        }
+        if let index = args.firstIndex(of: "--record-frames"), args.indices.contains(index + 1) {
+            let directory = URL(fileURLWithPath: args[index + 1], isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var frame = 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                self.frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 12, repeats: true) { [weak self] timer in
+                    self?.saveSnapshot(path: directory.appendingPathComponent(String(format: "frame-%03d.png", frame)).path)
+                    frame += 1
+                    if frame >= 36 { timer.invalidate(); NSApp.terminate(nil) }
+                }
             }
         }
     }
@@ -534,6 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             themes.addItem(entry)
         }
         themeParent.submenu = themes
+        add("工作动画", #selector(toggleAnimations)).state = model.animationsEnabled ? .on : .off
         add("任务结束提示音", #selector(toggleSound)).state = model.soundEnabled ? .on : .off
         add("试听提示音", #selector(testSound))
         menu.addItem(.separator())
@@ -586,6 +620,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.soundEnabled.toggle()
         UserDefaults.standard.set(model.soundEnabled, forKey: "soundEnabled")
     }
+    @objc func toggleAnimations() {
+        model.animationsEnabled.toggle()
+        UserDefaults.standard.set(model.animationsEnabled, forKey: "animationsEnabled")
+    }
     @objc func testSound() { model.playCompletionSound(force: true) }
     @objc func systemAppearanceChanged() {
         model?.systemDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -605,6 +643,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        frameTimer?.invalidate()
         model?.stop()
     }
 }

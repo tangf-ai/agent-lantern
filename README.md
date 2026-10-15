@@ -12,6 +12,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 可拖动、不抢键盘焦点，点击展开各个任务和接入状态。
 - 本地中文文案随机轮播，默认 20 秒，支持自行编辑句库。
 - 跟随系统、深色「夜航」、浅色「晨光」、暖纸「午后」四种主题，自动记住选择。
+- 工作核心呼吸、双层光弧旋转与动态信号条；等待时显示琥珀色脉冲，结束时短暂扩散。可关闭动画，并遵循系统「减少动态效果」设置。
 - 单项任务结束提示音，支持试听、关闭、去重；启动和重连不会补响历史任务。
 - 只读本地状态，不调用模型，不上传对话，不结束或重启智能体。
 
@@ -66,6 +67,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 
 - `Sources/main.swift`：原生浮窗、菜单栏、轮播、状态与收起逻辑。
 - `Sources/CompletionGate.swift`：完成事件去重、启动及重连静音。
+- `Sources/WorkingLight.swift`：原生 Canvas 工作核心和任务信号动画；隐藏、休眠和减少动态效果时停止连续刷新。
 - `Resources/collector.py`：Python 标准库只读适配器，以 JSONL 经私有管道交给 GUI；不监听端口。
 - `Resources/agent-lantern.ts`：Pi 轻量扩展，原子写入本地状态和心跳。
 - `Resources/quotes.json`：默认句库。
