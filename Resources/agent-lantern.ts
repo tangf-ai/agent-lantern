@@ -31,7 +31,7 @@ export default function (pi: ExtensionAPI) {
     try {
       mkdirSync(directory, {recursive: true, mode: 0o700});
       processStart = execFileSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart="],
-        {encoding: "utf8", timeout: 1000}).trim().replace(/\s+/g, " ");
+        {encoding: "utf8", timeout: 1000, env: {...process.env, LC_ALL: "C", LANG: "C"}}).trim().replace(/\s+/g, " ");
       initialized = true;
       cwd = ctx.cwd;
       state = ctx.isIdle() ? "idle" : "running";

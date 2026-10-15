@@ -145,6 +145,23 @@ class AdaptersTests(unittest.TestCase):
         file.write_text(json.dumps(record))
         self.assertEqual(len(c.read_pi(state, self.home, self.processes, 1000)[0]), 1)
 
+    def test_live_pi_day_first_start_time_is_accepted(self):
+        state = self.home / "state"
+        (state / "pi").mkdir(parents=True)
+        record = {"schema": 1, "pid": 44, "processStart": "Thu 15 Oct 19:38:53 2026",
+                  "state": "running", "updated": 1000, "started": 990, "instance": "locale-case"}
+        (state / "pi/44.json").write_text(json.dumps(record))
+        processes = {44: {"name": "pi", "start": "Thu Oct 15 19:38:53 2026", "parent": 1}}
+        tasks, adapter = c.read_pi(state, self.home, processes, 1000)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(adapter["status"], "ready")
+        processes[44]["start"] = "Thu Oct 15 19:38:54 2026"
+        self.assertEqual(c.read_pi(state, self.home, processes, 1000)[0], [], "PID reuse must still be rejected")
+
+    def test_process_fingerprint_normalizes_day_padding(self):
+        self.assertEqual(c.process_fingerprint("Fri  9 Oct 08:36:48 2026"),
+                         c.process_fingerprint("Fri Oct 09 08:36:48 2026"))
+
     def test_read_only_monitor_does_not_change_database(self):
         self.lease()
         before = (self.root / "state.db").read_bytes()

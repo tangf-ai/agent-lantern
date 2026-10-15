@@ -31,7 +31,8 @@ def read_json(path):
 
 def process_table():
     out = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,lstart=,comm="],
-                         capture_output=True, text=True, timeout=4, check=True).stdout
+                         capture_output=True, text=True, timeout=4, check=True,
+                         env={**os.environ, "LC_ALL": "C", "LANG": "C"}).stdout
     result = {}
     for line in out.splitlines():
         parts = line.strip().split(None, 7)
@@ -41,9 +42,23 @@ def process_table():
     return result
 
 
+def process_fingerprint(value):
+    """Normalize both C and day-first BSD ps dates, including heartbeats from loaded older extensions."""
+    clean = " ".join(str(value or "").split())
+    match = re.fullmatch(
+        r"[A-Za-z]{3} (?:(?P<month_a>[A-Za-z]{3}) (?P<day_a>\d{1,2})|"
+        r"(?P<day_b>\d{1,2}) (?P<month_b>[A-Za-z]{3})) "
+        r"(?P<clock>\d{2}:\d{2}:\d{2}) (?P<year>\d{4})", clean)
+    if not match:
+        return clean
+    month = match["month_a"] or match["month_b"]
+    day = int(match["day_a"] or match["day_b"])
+    return f"{match['year']} {month} {day} {match['clock']}"
+
+
 def alive(pid, processes, fingerprint=None):
     row = processes.get(int(pid or 0))
-    return bool(row and (not fingerprint or row["start"] == fingerprint))
+    return bool(row and (not fingerprint or process_fingerprint(row["start"]) == process_fingerprint(fingerprint)))
 
 
 def open_rollouts(processes):
