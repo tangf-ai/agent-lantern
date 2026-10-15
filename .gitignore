@@ -1,0 +1,12 @@
+# Generated apps, caches, rollback copies, and release staging stay local.
+*.noindex/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.app/
+*.zip
+*.dmg
+*.log
+.env
+.env.*
+!.env.example

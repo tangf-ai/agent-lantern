@@ -1,0 +1,38 @@
+name: Verify macOS app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test local collectors
+        run: python3 -m unittest discover -s tests -v
+      - name: Test Pi lifecycle integration
+        run: node --experimental-strip-types tests/test_pi.mjs
+      - name: Test completion sound rules
+        run: |
+          mkdir -p build.noindex
+          swiftc Sources/CompletionGate.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+          build.noindex/completion-gate-test
+      - name: Build and verify ad-hoc signed app
+        run: python3 build.py
+      - name: Package Apple Silicon app
+        run: ditto -c -k --sequesterRsrc --keepParent 'build.noindex/智能体工作灯.app' 'build.noindex/agent-lantern-mac-arm64.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-lantern-mac-arm64
+          path: build.noindex/agent-lantern-mac-arm64.zip
+          if-no-files-found: error
