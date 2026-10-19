@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install a new local copy. Refuse to overwrite an existing app or different extension."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import uuid
@@ -28,3 +29,14 @@ finally:
 subprocess.run(["/usr/bin/open", str(destination)], check=True)
 print("已安装并启动：" + str(destination))
 print("Pi 新会话会自动接入；现有终端会话可 /reload。")
+hermes_home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes").expanduser()
+hermes_plugin = hermes_home / "plugins/agent-lantern-metrics"
+plugin_source = root / "Resources/hermes-metrics"
+if hermes_home.is_dir() and not hermes_plugin.exists():
+    shutil.copytree(plugin_source, hermes_plugin, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    command = shutil.which("hermes")
+    if command:
+        result = subprocess.run([command, "plugins", "enable", "agent-lantern-metrics"], check=False)
+        if result.returncode == 0: print("Hermes TPS 插件已启用；下次启动 Hermes 后生效。")
+    else:
+        print("Hermes 插件已复制；运行 hermes plugins enable agent-lantern-metrics 启用。")

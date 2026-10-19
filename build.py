@@ -11,6 +11,9 @@ CONTENTS = APP / "Contents"
 (CONTENTS / "Resources").mkdir(parents=True, exist_ok=True)
 for resource in (ROOT / "Resources").iterdir():
     if resource.is_file(): shutil.copy2(resource, CONTENTS / "Resources" / resource.name)
+    elif resource.name == "hermes-metrics":
+        shutil.copytree(resource, CONTENTS / "Resources" / resource.name, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 shutil.copy2(ROOT / "LICENSE", CONTENTS / "Resources/LICENSE")
 info = {
     "CFBundleIdentifier": "local.agentlantern.desktop",
@@ -18,8 +21,8 @@ info = {
     "CFBundleDisplayName": "智能体工作灯",
     "CFBundleExecutable": "AgentLantern",
     "CFBundlePackageType": "APPL",
-    "CFBundleShortVersionString": "0.3.0",
-    "CFBundleVersion": "4",
+    "CFBundleShortVersionString": "0.5.0",
+    "CFBundleVersion": "6",
     "LSMinimumSystemVersion": "14.0",
     "LSUIElement": True,
     "NSHighResolutionCapable": True,

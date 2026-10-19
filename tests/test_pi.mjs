@@ -24,6 +24,15 @@ try {
   idle = false;
   handlers.get("agent_start")({}, ctx);
   assert.equal(state().state, "running");
+  handlers.get("before_provider_request")({payload: {secret: "DO_NOT_STORE"}}, ctx);
+  handlers.get("message_start")({message: {role: "assistant"}}, ctx);
+  handlers.get("message_update")({message: {role: "assistant", usage: {output: 0}}, assistantMessageEvent: {type: "text_delta", delta: "DO_NOT_STORE"}}, ctx);
+  assert.equal(state().metrics.live, undefined);
+  handlers.get("message_end")({message: {role: "assistant", usage: {output: 120, reasoning: 40}, durationMs: 3000, stopReason: "toolUse"}}, ctx);
+  assert.equal(state().metrics.recent.outputTokens, 120, "reasoning is already included in output");
+  assert.equal(state().metrics.recent.durationMs, 3000);
+  assert.equal(state().metrics.phase, "tools");
+  assert.equal(JSON.stringify(state()).includes("DO_NOT_STORE"), false);
   assert.equal(handlers.has("agent_end"), false, "intermediate agent_end must not end retries");
   handlers.get("ui_prompt_start")({kind: "confirm"}, ctx);
   assert.equal(state().state, "waiting");

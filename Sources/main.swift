@@ -10,6 +10,15 @@ struct AgentTask: Codable, Identifiable, Equatable {
     var started: Double
     var pid: Int?
     var evidence: String
+    var speed: TaskSpeed? = nil
+}
+struct TaskSpeed: Codable, Equatable {
+    var status: String
+    var detail: String
+    var value: Double? = nil
+    var measuredAt: Double? = nil
+    var outputTokens: Int? = nil
+    var durationMs: Double? = nil
 }
 struct Adapter: Codable, Identifiable, Equatable {
     var agent: String
@@ -144,7 +153,7 @@ final class Model: ObservableObject {
     }
     var subtitle: String {
         if demo { return "预览模式 · 示例任务" }
-        let names = ["Codex", "Pi", "Hermes"].compactMap { name -> String? in
+        let names = ["Codex", "Pi", "Hermes", "DeepSeek"].compactMap { name -> String? in
             let count = tasks.filter { $0.agent == name }.count
             return count > 0 ? "\(name) ×\(count)" : nil
         }
@@ -263,7 +272,13 @@ final class Model: ObservableObject {
             tasks = [AgentTask(id: "demo:1", agent: "Codex", label: "整理项目里的新想法", state: "running", started: now - 83, evidence: "示例"),
                      AgentTask(id: "demo:2", agent: "Pi", label: "把灵感变成作品", state: "running", started: now - 36, evidence: "示例"),
                      AgentTask(id: "demo:3", agent: "Hermes", label: "等待你的一个决定", state: "waiting", started: now - 112, evidence: "示例")]
-            adapters = ["Codex", "Pi", "Hermes"].map { Adapter(agent: $0, status: "ready", detail: "预览示例") }
+            tasks.append(AgentTask(id: "demo:4", agent: "DeepSeek", label: "Harness · 正在实现新想法", state: "running", started: now - 52, evidence: "示例"))
+            tasks[0].speed = TaskSpeed(status: "unavailable", detail: "示例：当前 Codex 本地记录缺少完整请求计时，显示不可用")
+            tasks[1].speed = TaskSpeed(status: "live", detail: "示例：流式增量 token 计数得到的实时速度", value: 42.8, measuredAt: now)
+            tasks[2].speed = TaskSpeed(status: "recent", detail: "示例：最近一次响应均速，包含首 token 等待，不包含工具执行", value: 28.6, measuredAt: now)
+            tasks[3].speed = TaskSpeed(status: "unavailable", detail: "示例：DeepSeek Harness 已接入任务运行检测")
+            tasks.sort { $0.agent < $1.agent }
+            adapters = ["Codex", "Pi", "Hermes", "DeepSeek"].map { Adapter(agent: $0, status: "ready", detail: "预览示例") }
             quote = "你负责灵感，它们负责加班。"
         } else {
             tasks = []
@@ -375,19 +390,25 @@ struct LanternView: View {
                                                 }
                                             }
                                         }
-                                        Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.48)).lineLimit(1)
+                                        HStack(spacing: 8) {
+                                            Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.48))
+                                                .lineLimit(1).truncationMode(.middle)
+                                            Spacer(minLength: 0)
+                                            SpeedBadge(speed: task.speed, palette: palette, demo: model.demo)
+                                                .layoutPriority(1)
+                                        }
                                     }
                                 }.help(task.evidence)
                             }
                         }.padding(.vertical, 15)
-                    }.frame(height: min(CGFloat(max(model.tasks.count, 1)) * 45 + 26, 170))
+                    }.frame(height: min(CGFloat(max(model.tasks.count, 1)) * 45 + 26, 210))
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     VStack(alignment: .leading, spacing: 9) {
                         ForEach(model.adapters) { adapter in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(adapter.status == "ready" ? palette.accent.opacity(0.7) : palette.warning.opacity(0.8))
                                     .frame(width: 4, height: 4).padding(.top, 4)
-                                Text(adapter.agent).font(.system(size: 10, weight: .medium)).frame(width: 44, alignment: .leading)
+                                Text(adapter.agent).font(.system(size: 10, weight: .medium)).lineLimit(1).frame(width: 52, alignment: .leading)
                                 Text(adapter.detail).font(.system(size: 10)).foregroundStyle(palette.text(0.42))
                                     .fixedSize(horizontal: false, vertical: true)
                             }.foregroundStyle(palette.text(0.6))
@@ -409,6 +430,35 @@ struct LanternView: View {
         if value < 60 { return "\(value)s" }
         if value < 3600 { return "\(value / 60)m \(value % 60)s" }
         return "\(value / 3600)h \((value % 3600) / 60)m"
+    }
+}
+
+struct SpeedBadge: View {
+    var speed: TaskSpeed?
+    var palette: Palette
+    var demo: Bool
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let now = context.date.timeIntervalSince1970
+            let fresh = demo || (speed?.measuredAt.map { now - $0 <= (speed?.status == "live" ? 4 : 300) } ?? true)
+            let valid = fresh && (speed?.value.map { $0.isFinite && $0 > 0 } ?? false)
+            Text(label(valid: valid))
+                .font(.system(size: 10, weight: valid ? .medium : .regular)).monospacedDigit()
+                .foregroundStyle(valid && speed?.status == "live" ? palette.accent : palette.text(valid ? 0.65 : 0.45))
+                .lineLimit(1)
+                .help(speed?.detail ?? "尚未接入此任务的 TPS 数据，不将整个任务耗时作为生成耗时")
+        }
+    }
+    func label(valid: Bool) -> String {
+        if valid, let speed, let value = speed.value, ["live", "recent"].contains(speed.status) {
+            return String(format: "%.1f TPS · %@", value, speed.status == "live" ? "实时" : "均速")
+        }
+        switch speed?.status {
+        case "sampling", "live", "recent": return "TPS 采样中"
+        case "tools": return "TPS — · 工具中"
+        case "reload": return "TPS 待接入"
+        default: return "TPS —"
+        }
     }
 }
 

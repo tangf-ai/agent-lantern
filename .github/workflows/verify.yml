@@ -18,10 +18,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Ensure DeepSeek session decoder
+        run: |
+          if ! command -v zstd >/dev/null 2>&1; then
+            brew install zstd
+          fi
       - name: Test local collectors
         run: python3 -m unittest discover -s tests -v
       - name: Test Pi lifecycle integration
         run: node --experimental-strip-types tests/test_pi.mjs
+      - name: Test Pi token-rate measurement
+        run: node --experimental-strip-types tests/test_pi_metrics.mjs
       - name: Test completion sound rules
         run: |
           mkdir -p build.noindex

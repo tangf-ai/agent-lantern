@@ -1,0 +1,3 @@
+name: agent-lantern-metrics
+version: "0.4.0"
+description: Local response token counts and request timing for Agent Lantern
