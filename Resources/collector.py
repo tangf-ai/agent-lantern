@@ -68,6 +68,44 @@ def read_speed(metrics, now, state="running", not_before=0):
     return no_speed("尚无有效输出计数与响应计时；只有最终用量的提供商需要等响应结束", "sampling")
 
 
+def flow(phase="unknown", at=0, detail="当前数据只确认任务运行，尚未确认模型收发"):
+    return {"phase": phase, "at": at, "detail": detail}
+
+
+def record_transfer(events, kind, at, key=""):
+    if not finite_number(at, 0.001): return
+    identity = f"{kind}:{hashlib.sha256(str(key).encode()).hexdigest()[:16]}:{at}"
+    if not any(e["id"] == identity for e in events):
+        events.append({"id": identity, "kind": kind, "at": at})
+        del events[:-12]
+
+
+def clean_transfers(values, started, now):
+    result = []
+    if not isinstance(values, list): return result
+    for event in values[-12:]:
+        if not isinstance(event, dict): continue
+        at = timestamp(event.get("at"))
+        identity, kind = event.get("id"), event.get("kind")
+        if (isinstance(identity, str) and 0 < len(identity) <= 200 and
+            kind in {"request", "response", "context"} and finite_number(at, 0.001) and
+            started <= at <= now and now - at <= 30):
+            result.append({"id": identity, "kind": kind, "at": at})
+    return result
+
+
+def pi_flow(data, now):
+    value = data.get("flow")
+    started = timestamp(data.get("started"))
+    if isinstance(value, dict) and value.get("phase") in {"request", "receiving", "response", "tools", "processing", "unknown"}:
+        at = timestamp(value.get("at"))
+        if finite_number(at) and started <= at <= now:
+            # Never forward arbitrary extension text or conversation data.
+            return {**flow(value["phase"], at, "Pi 扩展生命周期与流式事件；光点仅表示方向，不代表 token 数量或网络数据包"),
+                    "transfers": clean_transfers(value.get("transfers"), started, now)}
+    return flow(detail="Pi 扩展尚未提供收发阶段；下次启动或 /reload 后接入")
+
+
 def hermes_speed(state_dir, pid, sid, acquired, processes, now):
     name = f"{pid}-{hashlib.sha256(str(sid).encode()).hexdigest()[:24]}.json"
     try:
@@ -142,6 +180,9 @@ class CodexLog:
         self.last_event = 0.0
         self.state = "idle"
         self.pending = set()
+        self.tools = set()
+        self.flow = flow()
+        self.transfers = []
         self.valid = False
         self.completions = []
 
@@ -176,6 +217,9 @@ class CodexLog:
                 self.started = timestamp(payload.get("started_at")) or at
                 self.state = "running"
                 self.pending.clear()
+                self.tools.clear()
+                self.flow = flow()
+                self.transfers.clear()
                 self.valid = True
             elif typ in {"task_complete", "turn_aborted", "task_cancelled", "task_failed"}:
                 if typ == "task_complete" and turn:
@@ -187,22 +231,34 @@ class CodexLog:
                     self.state = "idle"
                     self.pending.clear()
                     self.valid = True
+            if typ in {"agent_message", "agent_reasoning"} and self.state != "idle":
+                record_transfer(self.transfers, "response", at)
+                if not self.tools: self.flow = flow("response", at, "观察到 Codex 响应落盘；非实时网络收包")
             self.last_event = max(at, self.last_event)
         if kind == "response_item" and self.state != "idle":
             typ = payload.get("type")
             name = payload.get("name", "")
             call = payload.get("call_id")
-            if typ in {"function_call", "custom_tool_call"} and name.split(".")[-1] == "request_user_input":
+            if typ in {"function_call", "custom_tool_call"}:
+                record_transfer(self.transfers, "response", at, call or "tool-call")
                 if call:
-                    self.pending.add(call)
+                    self.tools.add(call)
+                    if name.split(".")[-1] == "request_user_input": self.pending.add(call)
+                self.flow = flow("tools", at, "Codex 已记录工具调用；工具输出不等于已发送给模型")
             elif typ in {"function_call_output", "custom_tool_call_output"}:
                 self.pending.discard(call)
+                self.tools.discard(call)
+                record_transfer(self.transfers, "context", at, call or "tool-result")
+                if not self.tools: self.flow = flow("processing", at, "工具已返回，后续模型请求尚未确认")
+            elif typ == "reasoning" or (typ == "message" and payload.get("role") == "assistant"):
+                record_transfer(self.transfers, "response", at)
+                if not self.tools: self.flow = flow("response", at, "观察到 Codex 响应落盘；非实时网络收包")
             self.state = "waiting" if self.pending else "running"
 
     def task(self, pid):
         return {"id": "codex:" + self.session, "agent": "Codex", "label": self.project,
                 "state": self.state, "started": self.started, "pid": pid,
-                "evidence": "任务生命周期事件",
+                "evidence": "任务生命周期事件", "flow": {**self.flow, "transfers": self.transfers},
                 "speed": no_speed("Codex 当前本地用量记录缺少单次模型请求的完整计时和实时 token 计数，无法准确计算 TPS")}
 
 
@@ -218,6 +274,9 @@ class DeepSeekLog:
         self.started = 0.0
         self.state = "idle"
         self.pending = set()
+        self.tools = set()
+        self.flow = flow()
+        self.transfers = []
         self.completions = []
 
     def consume(self, event):
@@ -242,6 +301,9 @@ class DeepSeekLog:
             self.turn = turn
             self.started = timestamp(event.get("time"))
             self.pending.clear()
+            self.tools.clear()
+            self.flow = flow()
+            self.transfers.clear()
             self.state = "running"
         elif kind == "turn/end" and turn == self.turn:
             reason = data.get("reason") or {}
@@ -257,6 +319,19 @@ class DeepSeekLog:
         elif kind == "approval/decided" and self.state != "idle":
             self.pending.discard(data.get("id"))
             self.state = "waiting" if self.pending else "running"
+        elif self.state != "idle" and turn == self.turn:
+            at = timestamp(event.get("time"))
+            if kind == "tool/call" and isinstance(data.get("callId"), str):
+                self.tools.add(data["callId"])
+                record_transfer(self.transfers, "response", at, data["callId"])
+                self.flow = flow("tools", at, "DeepSeek Harness 已落盘的工具调用")
+            elif kind == "tool/result":
+                self.tools.discard(data.get("callId"))
+                record_transfer(self.transfers, "context", at, data.get("callId") or "tool-result")
+                if not self.tools: self.flow = flow("processing", at, "工具已返回，后续模型请求尚未确认")
+            elif kind == "assistant/message":
+                record_transfer(self.transfers, "response", at)
+                if not self.tools: self.flow = flow("response", at, "DeepSeek Harness 响应已落盘；随持久化检查点更新，非实时网络收包")
 
     def poll(self, zstd):
         stat = self.path.stat()
@@ -287,7 +362,7 @@ class DeepSeekLog:
         return {"id": "deepseek:" + self.session, "agent": "DeepSeek", "label": self.project,
                 "state": self.state, "started": self.started, "pid": pid,
                 "evidence": "DeepSeek Harness 进程持有会话文件，日志中存在未结束的 turn/start",
-                "speed": no_speed("DeepSeek Harness 已接入任务状态，尚未接入同口径的模型 TPS 统计")}
+                "flow": {**self.flow, "transfers": self.transfers}, "speed": no_speed("DeepSeek Harness 已接入任务状态，尚未接入同口径的模型 TPS 统计")}
 
 
 def deepseek_owners(home, processes):
@@ -463,6 +538,7 @@ def read_pi(state_dir, home, processes, now, completions=None):
                               "label": Path(d.get("cwd") or "Pi 会话").name,
                               "state": d["state"], "started": timestamp(d.get("started")),
                               "pid": d.get("pid"), "evidence": "Pi 生命周期扩展",
+                              "flow": pi_flow(d, now),
                               "speed": read_speed(d.get("metrics"), now, d["state"], timestamp(d.get("started")))})
         except (OSError, ValueError, TypeError):
             errors = True

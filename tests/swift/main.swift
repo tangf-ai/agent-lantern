@@ -20,3 +20,53 @@ check(!gate.consume([event("lateHistory", 90)], at: 154, allowSound: true), "Old
 check(!gate.consume([event("future", 200)], at: 156, allowSound: true), "Bad future clock must not ring")
 check(gate.consume([event("a", 157), event("b", 157.5)], at: 158, allowSound: true), "Batch should produce one sound")
 print("Completion sound: startup, individual completion, deduplication, mute, preview, reconnect, late history and batching: PASS")
+
+let stream = MessageFlow(phase: "receiving", at: 100, detail: "test")
+check(stream.display(at: 102, waiting: false) == .receiving, "Fresh content can animate inbound")
+check(stream.display(at: 104, waiting: false) == .awaiting, "Stalled stream must stop inbound movement")
+check(stream.display(at: 102, waiting: true) == .waiting, "Approval always overrides old model activity")
+let request = MessageFlow(phase: "request", at: 100, detail: "test")
+check(request.display(at: 100.5, waiting: false) == .sending, "Request event shows outbound briefly")
+check(request.display(at: 103, waiting: false) == .awaiting, "A pending request must not loop sends")
+check(request.display(at: 98, waiting: false) == .unknown, "Future observations cannot imply traffic")
+let response = MessageFlow(phase: "response", at: 100, detail: "test")
+check(response.display(at: 103, waiting: false) == .recorded, "Historical responses cannot loop inbound")
+print("Message flow: stale streams, pending requests, approval, future clocks and historical responses: PASS")
+
+check(FlowPhase.awaiting.showsModelPrinciple, "An outstanding request can show the conceptual model illustration")
+check(FlowPhase.receiving.showsModelPrinciple, "Fresh streamed output can show conceptual token generation")
+check(!FlowPhase.response.showsModelPrinciple, "A completed response must never imply ongoing model computation")
+check(FlowPhase.response.showsInboundFlow, "A recorded response can briefly acknowledge arrival")
+for phase in [FlowPhase.unknown, .processing, .waiting, .recorded, .tools] {
+    check(!phase.showsModelPrinciple, "Unknown, local, approval and historical phases cannot imply model computation")
+}
+check(FlowPhase.tools.showsAgentCycle, "Observed tools can animate the local conceptual loop")
+check(!FlowPhase.awaiting.showsAgentCycle, "Waiting for a model must not animate a local tool cycle")
+check(request.display(at: 102.7, waiting: false) == .sending, "The bounded send effect must fit the collector cadence")
+check(request.display(at: 102.8, waiting: false) == .awaiting, "The same request cannot repeat outbound pulses")
+print("Mechanism animation: observed phases, completed responses, tools, approval, unknown states and bounded sending: PASS")
+
+var transfers = TransferPlaybackGate()
+func batch(_ events: [FlowTransfer], task: String = "codex:example") -> [TransferBatch] {
+    [TransferBatch(task: task, started: 100, events: events)]
+}
+let history = FlowTransfer(id: "history", kind: "response", at: 100)
+check(transfers.consume(batch([history]), at: 100).isEmpty, "Startup must not replay transfer history")
+let inbound = FlowTransfer(id: "inbound", kind: "response", at: 101)
+let context = FlowTransfer(id: "context", kind: "context", at: 101)
+let queued = transfers.consume(batch([history, inbound, context]), at: 102)["codex:example"] ?? []
+check(queued.map { $0.kind } == ["response", "context"], "A response immediately followed by tools/result must preserve both directions")
+check(queued.first?.active(at: 102) == true, "Arrival playback starts when observed, not before collector delivery")
+check(queued.last?.began == 104.5, "The context handoff must remain visible after response arrival")
+let repeated = transfers.consume(batch([history, inbound, context]), at: 103)["codex:example"] ?? []
+check(repeated == queued, "Repeated snapshots or view switches must not replay or reset transfers")
+check(transfers.consume(batch([history, inbound, context]), at: 110)["codex:example"]?.isEmpty != false, "Expired transfers must stop")
+let stale = FlowTransfer(id: "late-history", kind: "request", at: 101)
+check(transfers.consume(batch([stale]), at: 111)["codex:example"]?.isEmpty != false, "Late historical logs must not cause animation")
+var newGate = TransferPlaybackGate()
+_ = newGate.consume([], at: 100)
+let newRequest = FlowTransfer(id: "request", kind: "request", at: 102)
+let actual = newGate.consume(batch([FlowTransfer(id: "context2", kind: "context", at: 101), newRequest]), at: 102)["codex:example"] ?? []
+check(actual.count == 1 && actual.first?.kind == "request", "A confirmed request supersedes an immediately preceding context illustration")
+check(newGate.consume([], at: 104).isEmpty, "Finished tasks must not leave ghost animations")
+print("Transfer replay: same-poll overwrite, collector latency, two directions, deduplication, expiry, startup, task removal and request provenance: PASS")

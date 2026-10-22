@@ -11,6 +11,7 @@ struct AgentTask: Codable, Identifiable, Equatable {
     var pid: Int?
     var evidence: String
     var speed: TaskSpeed? = nil
+    var flow: MessageFlow? = nil
 }
 struct TaskSpeed: Codable, Equatable {
     var status: String
@@ -97,6 +98,7 @@ final class Model: ObservableObject {
     var manualVisible = false
     var lastQuote = ""
     var completionGate = CompletionGate()
+    var transferGate = TransferPlaybackGate()
     let completionSound = NSSound(named: "Glass")
     let preview: Bool
 
@@ -194,6 +196,7 @@ final class Model: ObservableObject {
         guard !shuttingDown, let script = Bundle.main.url(forResource: "collector", withExtension: "py") else { return }
         let p = Process()
         completionGate = CompletionGate()
+        transferGate = TransferPlaybackGate()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         p.arguments = ["-u", script.path]
         let out = Pipe()
@@ -243,7 +246,21 @@ final class Model: ObservableObject {
     func apply(_ snapshot: Snapshot) {
         let hadTasks = !tasks.isEmpty
         monitorHealthy = true
-        tasks = snapshot.tasks
+        var incoming = snapshot.tasks
+        for index in incoming.indices where incoming[index].flow == nil {
+            if let speed = incoming[index].speed, speed.status == "recent", let at = speed.measuredAt {
+                incoming[index].flow = MessageFlow(phase: "response", at: at, detail: speed.detail,
+                    transfers: [FlowTransfer(id: "response:\(at)", kind: "response", at: at)])
+            }
+        }
+        let playback = transferGate.consume(incoming.map {
+            TransferBatch(task: $0.id, started: $0.started, events: $0.flow?.transfers ?? [])
+        }, at: snapshot.updated)
+        for index in incoming.indices {
+            let id = incoming[index].id
+            incoming[index].flow?.playback = playback[id]
+        }
+        tasks = incoming
         adapters = snapshot.adapters
         if !tasks.isEmpty {
             hideWork?.cancel()
@@ -353,6 +370,10 @@ struct LanternView: View {
             }.buttonStyle(.plain).padding(.horizontal, 21)
                 .accessibilityLabel(model.expanded ? "收起任务详情" : "展开任务详情")
 
+            if !model.tasks.isEmpty && !model.expanded {
+                MessageFlowCarousel(tasks: model.tasks, palette: palette, animationsEnabled: model.animateWork, demo: model.demo)
+                    .padding(.horizontal, 21).padding(.bottom, 13)
+            }
             Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1).padding(.horizontal, 20)
 
             HStack(alignment: .center, spacing: 8) {
@@ -368,40 +389,45 @@ struct LanternView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 13) {
+                        LazyVStack(alignment: .leading, spacing: 16) {
                             if model.tasks.isEmpty {
                                 Text("新任务开始时，小灯会自动亮起。")
                                     .font(.system(size: 11)).foregroundStyle(palette.text(0.5))
                             }
                             ForEach(model.tasks) { task in
-                                HStack(alignment: .top, spacing: 9) {
-                                    Circle().fill(task.state == "waiting" ? palette.warning : palette.accent)
-                                        .frame(width: 5, height: 5).padding(.top, 5)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
-                                            Text(task.agent).font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.text(0.85))
-                                            Spacer()
-                                            Text(task.state == "waiting" ? "等你确认" : "进行中")
-                                                .font(.system(size: 10)).foregroundStyle(task.state == "waiting" ? palette.warning : palette.accent)
-                                            if task.started > 0 {
-                                                TimelineView(.periodic(from: .now, by: 1)) { context in
-                                                    Text(elapsed(context.date.timeIntervalSince1970 - task.started))
-                                                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(palette.text(0.35))
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(alignment: .top, spacing: 9) {
+                                        Circle().fill(task.state == "waiting" ? palette.warning : palette.accent)
+                                            .frame(width: 5, height: 5).padding(.top, 5)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack {
+                                                Text(task.agent).font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.text(0.85))
+                                                Spacer()
+                                                Text(task.state == "waiting" ? "等你确认" : "进行中")
+                                                    .font(.system(size: 10)).foregroundStyle(task.state == "waiting" ? palette.warning : palette.accent)
+                                                if task.started > 0 {
+                                                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                                                        Text(elapsed(context.date.timeIntervalSince1970 - task.started))
+                                                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(palette.text(0.35))
+                                                    }
                                                 }
                                             }
+                                            HStack(spacing: 8) {
+                                                Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.48))
+                                                    .lineLimit(1).truncationMode(.middle)
+                                                Spacer(minLength: 0)
+                                                SpeedBadge(speed: task.speed, palette: palette, demo: model.demo)
+                                                    .layoutPriority(1)
+                                            }
                                         }
-                                        HStack(spacing: 8) {
-                                            Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.48))
-                                                .lineLimit(1).truncationMode(.middle)
-                                            Spacer(minLength: 0)
-                                            SpeedBadge(speed: task.speed, palette: palette, demo: model.demo)
-                                                .layoutPriority(1)
-                                        }
-                                    }
-                                }.help(task.evidence)
+                                    }.help(task.evidence)
+                                    MessageFlowView(task: task, palette: palette, animationsEnabled: model.animateWork,
+                                                    demo: model.demo, detailed: true)
+                                        .padding(.leading, 13)
+                                }
                             }
                         }.padding(.vertical, 15)
-                    }.frame(height: min(CGFloat(max(model.tasks.count, 1)) * 45 + 26, 210))
+                    }.frame(height: min(CGFloat(max(model.tasks.count, 1)) * 245 + 30, 310))
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     VStack(alignment: .leading, spacing: 9) {
                         ForEach(model.adapters) { adapter in
@@ -504,6 +530,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             default: break
             }
         }
+        if model.preview, let index = args.firstIndex(of: "--preview-flow"), args.indices.contains(index + 1),
+           ["request", "awaiting", "receiving", "response", "tools", "processing", "unknown"].contains(args[index + 1]) {
+            model.tasks = model.tasks.map { task in
+                var value = task
+                value.flow = MessageFlow(phase: args[index + 1], at: Date().timeIntervalSince1970, detail: "演示动画")
+                return value
+            }
+        }
+        if model.preview && args.contains("--preview-transfers") {
+            let now = Date().timeIntervalSince1970
+            model.tasks = model.tasks.map { task in
+                var value = task
+                value.flow = MessageFlow(phase: "tools", at: now, detail: "近期事件演示", playback: [
+                    TransferPulse(id: "demo-response", kind: "response", began: now),
+                    TransferPulse(id: "demo-context", kind: "context", began: now + 2.5)
+                ])
+                return value
+            }
+        }
+        if model.preview && args.contains("--preview-single") { model.tasks = Array(model.tasks.prefix(1)) }
         if args.contains("--no-animation") { model.animationsEnabled = false }
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
@@ -548,8 +594,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.refresh()
             }
         }
+        if model.preview && args.contains("--expanded") { model.expanded = true; refresh() }
         if let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) {
-            if args.contains("--expanded") { model.expanded = true; refresh() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 self?.saveSnapshot(path: self?.args[index + 1] ?? "")
                 NSApp.terminate(nil)
@@ -559,12 +605,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let directory = URL(fileURLWithPath: args[index + 1], isDirectory: true)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             var frame = 0
+            let requestedFrames = args.firstIndex(of: "--frame-count").flatMap { index in
+                args.indices.contains(index + 1) ? Int(args[index + 1]) : nil
+            } ?? 36
+            let frameCount = min(240, max(12, requestedFrames))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self else { return }
                 self.frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 12, repeats: true) { [weak self] timer in
                     self?.saveSnapshot(path: directory.appendingPathComponent(String(format: "frame-%03d.png", frame)).path)
                     frame += 1
-                    if frame >= 36 { timer.invalidate(); NSApp.terminate(nil) }
+                    if frame >= frameCount { timer.invalidate(); NSApp.terminate(nil) }
                 }
             }
         }

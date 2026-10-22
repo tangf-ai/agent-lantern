@@ -60,12 +60,25 @@ export default function (pi: ExtensionAPI) {
   const activeTools = new Set<string>();
   const rate = new TokenRate();
   let lastPublished = 0;
+  let flow = {phase: "unknown", at: 0};
+  const transfers: Array<{id: string, kind: string, at: number}> = [];
+  let transferSequence = 0;
+  function transfer(kind: string) {
+    transfers.push({id: `${instance}:${run}:${++transferSequence}`, kind, at: Date.now()});
+    if (transfers.length > 12) transfers.splice(0, transfers.length - 12);
+  }
+  function phase(value: string) { flow = {phase: value, at: Date.now()}; }
+  function received() {
+    if (state === "idle" || activeTools.size || blocked + uiBlocked > 0) return;
+    phase("receiving");
+    if (Date.now() - lastPublished >= 500) publish();
+  }
   function publish() {
     if (!initialized) return;
     try {
       const temporary = file + ".tmp";
       writeFileSync(temporary, JSON.stringify({schema: 1, instance, pid: process.pid,
-        processStart, cwd, state, started, completion, metrics: rate.snapshot(), updated: Date.now()}), {mode: 0o600});
+        processStart, cwd, state, started, completion, flow: {...flow, transfers}, metrics: rate.snapshot(), updated: Date.now()}), {mode: 0o600});
       renameSync(temporary, file);
       lastPublished = Date.now();
     } catch { /* An optional display must never interrupt the agent. */ }
@@ -92,6 +105,8 @@ export default function (pi: ExtensionAPI) {
     state = "running";
     started = Date.now();
     run = randomUUID();
+    phase("unknown");
+    transfers.length = 0;
     rate.reset();
     blocked = 0;
     uiBlocked = 0;
@@ -107,11 +122,13 @@ export default function (pi: ExtensionAPI) {
   });
   pi.on("tool_execution_start", (event) => {
     activeTools.add(event.toolCallId);
+    phase("tools");
     rate.setPhase("tools");
     publish();
   });
   pi.on("tool_execution_end", (event) => {
     activeTools.delete(event.toolCallId);
+    if (!activeTools.size) { phase("processing"); transfer("context"); }
     publish();
   });
   // Cooperate with existing Herdr approval providers without changing any tool behavior.
@@ -131,20 +148,34 @@ export default function (pi: ExtensionAPI) {
     if (state !== "idle") state = blocked + uiBlocked > 0 ? "waiting" : "running";
     publish();
   });
-  pi.on("before_provider_request", () => { rate.begin(); publish(); });
+  pi.on("before_provider_request", () => { rate.begin(); phase("request"); transfer("request"); publish(); });
   pi.on("message_start", (event) => {
     if (event.message?.role === "assistant" && !rate.active) { rate.begin(); publish(); }
   });
   pi.on("message_update", (event) => {
     const part = event.assistantMessageEvent;
-    if (part && ["text_delta", "thinking_delta", "toolcall_delta"].includes(part.type)) {
+    if (part && ["text_delta", "thinking_delta", "toolcall_delta"].includes(part.type) && typeof part.delta === "string" && part.delta.length > 0) {
       rate.observe((event.message as any)?.usage?.output);
+      received();
       if (Date.now() - lastPublished >= 1000) publish();
     }
   });
   pi.on("provider_stream_event", (event) => {
     const data = event.data as any;
     if (!data || typeof data !== "object") return;
+    // Only actual content deltas count as receive activity; metadata/heartbeats do not.
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    const delta = data.delta;
+    const contentDelta = (typeof delta === "string" && delta.length > 0) ||
+      (delta && typeof delta === "object" && [delta.text, delta.thinking, delta.partial_json]
+        .some((value: unknown) => typeof value === "string" && value.length > 0));
+    if (choices.some((c: any) => {
+      const d = c?.delta;
+      return d && ((typeof d.content === "string" && d.content.length > 0) ||
+        (typeof d.reasoning_content === "string" && d.reasoning_content.length > 0) ||
+        (Array.isArray(d.tool_calls) && d.tool_calls.some((call: any) =>
+          [call?.id, call?.function?.name, call?.function?.arguments].some((value: unknown) => typeof value === "string" && value.length > 0))));
+    }) || (["content_block_delta", "response.output_text.delta", "response.reasoning_summary_text.delta"].includes(data.type) && contentDelta)) received();
     // Continuous-usage OpenAI-compatible chunks. Empty/final chunks are not live samples.
     if (Array.isArray(data.choices) && data.choices.length && data.choices.every((c: any) => c.finish_reason == null)) {
       rate.observe(data.usage?.completion_tokens);
@@ -157,6 +188,9 @@ export default function (pi: ExtensionAPI) {
     const message = event.message as any;
     if (message?.role !== "assistant") return;
     rate.finish(message.usage?.output, message.durationMs, ["stop", "length", "toolUse", "deferred"].includes(message.stopReason));
+    const succeeded = ["stop", "length", "toolUse", "deferred"].includes(message.stopReason);
+    phase(succeeded ? "response" : "unknown");
+    if (succeeded) transfer("response");
     if (message.stopReason === "toolUse") rate.setPhase("tools");
     publish();
   });
