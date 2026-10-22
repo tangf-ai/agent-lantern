@@ -4,7 +4,7 @@
 
 Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi、Hermes、DeepSeek Harness 的任务状态，轮播本地趣味文案，并在已接入任务结束时轻声提醒。
 
-![DeepSeek Harness 与每任务 TPS 预览，图中为示例任务](docs/preview-light.png)
+![微风发电与双向通信预览，图中为示例任务](docs/preview-wind-light.png)
 
 ## 功能
 
@@ -14,6 +14,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 跟随系统、深色「夜航」、浅色「晨光」、暖纸「午后」四种主题，自动记住选择。
 - 工作核心呼吸、双层光弧旋转与动态信号条；等待时显示琥珀色脉冲，结束时短暂扩散。可关闭动画，并遵循系统「减少动态效果」设置。
 - 能量脉冲收发动画；展开后可看智能体工作闭环与模型分层计算示意，明确区分事件状态和原理动画。
+- 中间的「微风发电」陪伴动效：风机、草地与轻云，点击可短暂加风，转速不代表 TPS 或任务进度。
 - 每个任务独立显示 TPS：明确区分流式实测速度、最近响应均速与暂无数据；不按字符或文字块猜测 token 数。
 - 单项任务结束提示音，支持试听、关闭、去重；启动和重连不会补响历史任务。
 - 只读本地状态，不调用模型，不上传对话，不结束或重启智能体。
@@ -22,7 +23,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.7.1-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.8.2-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -82,6 +83,16 @@ Codex 和 Hermes 的本地状态格式可能随版本变化；接入异常会显
 
 等待确认优先显示暂停；动画开关、系统减少动态效果和休眠规则继续生效。预览始终标注为演示，不调用模型。仅记录阶段和时间，不保存消息正文。
 
+## 微风发电陪伴动效
+
+![微风发电原生预览，示例任务，风机转速不代表任务进度](docs/preview-wind-light.png)
+
+在两侧工作机制之间放置一个微型风机场景，收起和展开时均可见。工作时缓缓旋转，全部任务等待确认时平滑降速，点击风机可以短暂加风。风机与当前通信阶段独立，即使暂时没有收发事件也可以作为陪伴动效运行；转速不用于表达模型速度、TPS 或任务进度。
+
+风机与两侧图形使用放大的尺寸和更清晰的轮廓，中间保持紧凑布局。发送与接收的浅弧线穿过风车，通信光点显示在叶片和塔身上方，收起和展开均可见。
+
+多个可见风机共用一个时钟，切换智能体、展开或收起不会重置转子。动画开关、减少动态效果、隐藏、休眠及可见区域规则继续生效；暂停后恢复不会快进。全部任务结束后，保留结束状态的风景直到原有八秒提示收起，此时真实任务数为零，通信和模型计算示意保持静止。
+
 ## 验证
 
 ```sh
@@ -89,7 +100,7 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
@@ -102,6 +113,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 - `Sources/MessageFlow.swift` / `Sources/MessageFlowView.swift`：有时效限制的阶段解释与双向通信动画。
 - `Sources/TransferPlayback.swift`：共享的近期通信播放队列，处理采集延迟、去重、过期与启动静音，独立于当前工作阶段。
 - `Sources/MechanismScene.swift`：能量脉冲、吸收涟漪、工作闭环及模型分层计算的原生矢量示意；不读取模型内部信息。
+- `Sources/WindMotion.swift` / `Sources/WindGarden.swift`：微风的运动积分、可见视图共用的时钟和原生风机插画，不读取 token 或进度数据。
 - `Sources/WorkingLight.swift`：原生 Canvas 工作核心和任务信号动画；隐藏、休眠和减少动态效果时停止连续刷新。
 - `Resources/collector.py`：Python 标准库只读适配器，以 JSONL 经私有管道交给 GUI；不监听端口。
 - `Resources/agent-lantern.ts`：Pi 轻量扩展，原子写入本地状态和心跳。

@@ -4,6 +4,7 @@ struct MessageFlowView: View {
     var task: AgentTask
     var palette: Palette
     var animationsEnabled: Bool
+    var windClock: WindClock
     var demo = false
     var detailed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -36,21 +37,30 @@ struct MessageFlowView: View {
                     Text(detailed ? "模型内部示意" : "大模型").font(.system(size: 10, weight: .medium))
                 }.foregroundStyle(palette.text(0.75))
                 TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { frame in
-                    Canvas { context, size in
-                        let wall = moving ? frame.date.timeIntervalSince1970 : now
-                        let elapsed = moving ? frame.date.timeIntervalSince(created) : 0.9
-                        let transfer = activePulse(now: wall, phase: phase)
-                        MechanismScene(palette: palette, phase: phase, detailed: detailed,
+                    let wall = moving ? frame.date.timeIntervalSince1970 : now
+                    let elapsed = moving ? frame.date.timeIntervalSince(created) : 0.9
+                    let transfer = activePulse(now: wall, phase: phase)
+                    let scene = MechanismScene(palette: palette, phase: phase, detailed: detailed,
                                        elapsed: max(0, elapsed), eventAge: eventAge(now: wall, phase: phase),
                                        moving: moving, transfer: transfer,
                                        transferAge: transfer.map { moving ? max(0, wall - $0.began) : $0.duration * 0.57 })
-                            .draw(context, size: size)
+                    ZStack {
+                        Canvas { context, size in scene.draw(context, size: size) }
+                        GeometryReader { geometry in
+                            WindGardenView(clock: windClock, palette: palette)
+                                .position(x: geometry.size.width / 2, y: detailed ? 75 : 70)
+                        }
+                        // Keep traffic visible as it crosses blades and mast;
+                        // this layer must not intercept clicks on the windmill.
+                        Canvas { context, size in scene.draw(context, size: size, layer: .transfers) }
+                            .allowsHitTesting(false)
                     }
-                }.frame(height: detailed ? 150 : 74)
-                Text(pulse?.title ?? (phase == .waiting ? "等待确认 · 通信暂停" : "收发由事件驱动"))
+                }
+                .frame(height: detailed ? 170 : 140)
+                Text(pulse?.title ?? (phase == .waiting ? "等待确认 · 通信暂停" : phase == .ended ? "本次运行已结束 · 微风相伴" : "收发由事件驱动"))
                     .font(.system(size: 9)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.5))
                     .frame(height: 11).lineLimit(1)
-                Text(detailed ? "模型内部为原理示意 · 非实时内部遥测" : "模型内部示意")
+                Text(detailed ? "模型内部为原理示意 · 微风不表示进度" : "模型内部示意 · 微风仅作陪伴")
                     .font(.system(size: 9)).foregroundStyle(palette.text(0.43))
                 if !detailed {
                     HStack(spacing: 4) {
@@ -65,7 +75,7 @@ struct MessageFlowView: View {
             }
             .help((demo ? "预览示例；" : observation.detail + "；") +
                   "模型内部的注意力与分层计算、智能体的闭环图均为原理示意；节点、层数、token 方块与光点不代表内部遥测或 TPS")
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("\(task.agent)，\(phase.title)，\(demo ? "演示" : sourceLabel)，模型内部为原理示意")
         }
         .onAppear { visible = true }
@@ -73,6 +83,7 @@ struct MessageFlowView: View {
     }
 
     private func displayPhase(now: Double) -> FlowPhase {
+        if task.state == "ended" { return .ended }
         guard demo, task.state != "waiting" else { return observation.display(at: now, waiting: task.state == "waiting") }
         if let flow = task.flow { return flow.display(at: flow.at, waiting: false) }
         let offset = ["Codex": 0.0, "Pi": 4.0, "Hermes": 8.0, "DeepSeek": 12.0][task.agent] ?? 0.0
@@ -104,6 +115,7 @@ struct MessageFlowCarousel: View {
     var tasks: [AgentTask]
     var palette: Palette
     var animationsEnabled: Bool
+    var windClock: WindClock
     var demo: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var anchor = Date()
@@ -114,7 +126,7 @@ struct MessageFlowCarousel: View {
                 let now = Date().timeIntervalSince1970
                 let active = tasks.filter { $0.state != "waiting" && $0.flow?.playback?.contains(where: { $0.active(at: now) }) == true }
                 let selected = active.contains(where: { $0.id == tasks[index].id }) ? tasks[index] : (active.first ?? tasks[index])
-                MessageFlowView(task: selected, palette: palette, animationsEnabled: animationsEnabled, demo: demo)
+                MessageFlowView(task: selected, palette: palette, animationsEnabled: animationsEnabled, windClock: windClock, demo: demo)
                     .id(selected.id)
             }
         }

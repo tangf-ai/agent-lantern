@@ -24,7 +24,7 @@ struct MessageFlow: Codable, Equatable {
 }
 
 enum FlowPhase {
-    case sending, awaiting, receiving, response, recorded, tools, processing, waiting, unknown
+    case sending, awaiting, receiving, response, recorded, tools, processing, waiting, unknown, ended
     static let sendingDuration = 2.8
     var title: String {
         switch self {
@@ -37,6 +37,7 @@ enum FlowPhase {
         case .processing: return "等待后续事件"
         case .waiting: return "等待你的确认"
         case .unknown: return "收发阶段未确认"
+        case .ended: return "本次运行已结束"
         }
     }
     var moving: Bool { [.sending, .awaiting, .receiving, .response, .tools].contains(self) }

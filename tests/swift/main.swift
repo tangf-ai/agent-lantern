@@ -70,3 +70,36 @@ let actual = newGate.consume(batch([FlowTransfer(id: "context2", kind: "context"
 check(actual.count == 1 && actual.first?.kind == "request", "A confirmed request supersedes an immediately preceding context illustration")
 check(newGate.consume([], at: 104).isEmpty, "Finished tasks must not leave ghost animations")
 print("Transfer replay: same-poll overwrite, collector latency, two directions, deduplication, expiry, startup, task removal and request provenance: PASS")
+
+var wind = WindMotion()
+let initialAngle = wind.angle
+wind.advance(at: 100, mood: .working)
+check(wind.angle == initialAngle, "A paused wind scene must not animate")
+wind.resume(at: 100)
+for i in 1...60 { wind.advance(at: 100 + Double(i) / 30, mood: .working) }
+check(wind.angle != initialAngle, "The companion must move even when no communication events arrive")
+let beforeWaiting = wind.angle
+wind.advance(at: 102, mood: .waiting)
+check(wind.angle == beforeWaiting, "Changing mood must not reset or jump the rotor")
+for i in 1...90 { wind.advance(at: 102 + Double(i) / 30, mood: .waiting) }
+check(wind.speed < 0.36 && wind.speed > 0.33, "Waiting must smoothly slow the turbine")
+wind.gust(at: 105)
+for i in 1...35 { wind.advance(at: 105 + Double(i) / 30, mood: .waiting) }
+check(wind.speed > 0.6, "Clicking the garden should create a temporary gust")
+for i in 36...240 { wind.advance(at: 105 + Double(i) / 30, mood: .waiting) }
+check(wind.gustAge == nil && wind.speed < 0.36, "A gust must end and return to the waiting rhythm")
+wind.pause()
+let pausedAngle = wind.angle
+wind.gust(at: 300)
+wind.advance(at: 301, mood: .working)
+check(wind.angle == pausedAngle && wind.gustAge == nil, "Disabled/reduced-motion views must remain static even when clicked")
+wind.resume(at: 400)
+wind.advance(at: 400, mood: .working)
+check(wind.angle == pausedAngle, "Resume must preserve the rotor position")
+wind.advance(at: 10000, mood: .working)
+check(abs(wind.angle - pausedAngle) < 0.1, "Long gaps must not fast-forward decorative motion")
+let finiteAngle = wind.angle
+wind.advance(at: .nan, mood: .working)
+check(wind.angle == finiteAngle, "Invalid timing must not corrupt geometry")
+check(!FlowPhase.ended.showsModelPrinciple && !FlowPhase.ended.showsInboundFlow, "The ended display must not simulate live model traffic")
+print("Wind companion: idle communication, smooth waiting, temporary gust, pause, reduced motion, resume and bounded frame gaps: PASS")

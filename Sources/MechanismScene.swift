@@ -3,6 +3,7 @@ import SwiftUI
 /// A conceptual mechanism illustration. Only observed phases enable animation;
 /// layer count, cell brightness and token tiles are never internal model telemetry.
 struct MechanismScene {
+    enum Layer { case mechanisms, transfers }
     var palette: Palette
     var phase: FlowPhase
     var detailed: Bool
@@ -13,42 +14,49 @@ struct MechanismScene {
     var transferAge: Double? = nil
     private let intensity = 1.3
 
-    func draw(_ context: GraphicsContext, size: CGSize) {
+    func draw(_ context: GraphicsContext, size: CGSize, layer: Layer = .mechanisms) {
         let width = Double(size.width)
-        let left = detailed ? 58.0 : 26.0
+        let left = detailed ? 52.0 : 34.0
         let right = width - left
-        let y = detailed ? 62.0 : 31.0
-        let reach = detailed ? 20.0 : 13.0
+        let y = detailed ? 68.0 : 58.0
+        let reach = detailed ? 27.0 : 22.0
         let outbound: (Double) -> CGPoint = { u in
             CGPoint(x: left + reach + (right - left - reach * 2) * u,
-                    y: y - reach * 0.8 - sin(u * .pi) * (detailed ? 17 : 10))
+                    y: y - 8 - sin(u * .pi) * (detailed ? 14 : 10))
         }
         let inbound: (Double) -> CGPoint = { u in
             CGPoint(x: right - reach - (right - left - reach * 2) * u,
-                    y: y + (detailed ? 48 : 24) + sin(u * .pi) * (detailed ? 8 : 4))
+                    y: y + (detailed ? 22 : 18) + sin(u * .pi) * (detailed ? 4 : 3))
         }
-        line(context, samples(outbound), palette.ink, 0.7, 0.10)
-        line(context, samples(inbound), palette.ink, 0.7, 0.08)
-        if let transfer, phase != .waiting {
-            if transfer.kind == "response" {
-                receive(context, x: left, y: y, along: inbound, recordedAge: transferAge ?? 0)
-            } else {
-                send(context, x: left, target: right, y: y, along: outbound, recordedAge: transferAge ?? 0)
+        if layer == .transfers {
+            line(context, samples(outbound), palette.ink, 0.9, 0.20)
+            line(context, samples(inbound), palette.ink, 0.9, 0.17)
+            if let transfer, phase != .waiting {
+                if transfer.kind == "response" {
+                    receive(context, x: left, y: y, along: inbound, recordedAge: transferAge ?? 0)
+                } else {
+                    send(context, x: left, target: right, y: y, along: outbound, recordedAge: transferAge ?? 0)
+                }
+            } else if phase == .sending {
+                send(context, x: left, target: right, y: y, along: outbound)
+            } else if phase.showsInboundFlow {
+                receive(context, x: left, y: y, along: inbound)
             }
-        } else if phase == .sending {
-            send(context, x: left, target: right, y: y, along: outbound)
-        } else if phase.showsInboundFlow {
-            receive(context, x: left, y: y, along: inbound)
+            return
         }
-        agent(context, x: left, y: y)
-        model(context, x: right, y: y)
-        if phase == .waiting {
-            context.draw(Text(Image(systemName: "pause.fill")).font(.system(size: 11))
-                .foregroundColor(palette.warning), at: CGPoint(x: width / 2, y: y + 3))
-        }
+        // Scale the mechanisms themselves, including strokes and labels, while
+        // keeping the transfer paths in panel coordinates across the garden.
+        var agentContext = context
+        agentContext.translateBy(x: left, y: y)
+        agentContext.scaleBy(x: detailed ? 1.12 : 1.6, y: detailed ? 1.12 : 1.6)
+        agent(agentContext, x: 0, y: 0)
+        var modelContext = context
+        modelContext.translateBy(x: right, y: y)
+        modelContext.scaleBy(x: detailed ? 1.12 : 1.55, y: detailed ? 1.12 : 1.55)
+        model(modelContext, x: 0, y: 0)
         if detailed {
-            text(context, "组织 · 工具 · 回填", left, 142, palette.text(0.55), size: 9)
-            text(context, "关联 · 计算 · 生成", right, 142, palette.text(0.55), size: 9)
+            text(context, "组织 · 工具 · 回填", left, 160, palette.text(0.65), size: 10)
+            text(context, "关联 · 计算 · 生成", right, 160, palette.text(0.65), size: 10)
         }
     }
 
@@ -106,15 +114,15 @@ struct MechanismScene {
         glow(context, CGPoint(x: x, y: y), detailed ? 39 : 25, color, active ? 0.16 : 0.025)
         let labels = ["组织", "调度", "工具", "回填"]
         for i in 0..<4 {
-            line(context, [nodes[i], nodes[(i + 1) % 4]], palette.ink, 0.7, 0.12)
-            circle(context, nodes[i], detailed ? 4.3 : 2.8, color, active && i == selected ? 0.8 : 0.22, width: 0.8)
+            line(context, [nodes[i], nodes[(i + 1) % 4]], palette.ink, 0.8, 0.24)
+            circle(context, nodes[i], detailed ? 4.3 : 2.8, color, active && i == selected ? 0.8 : 0.38, width: 0.8)
             circle(context, nodes[i], detailed ? 2.1 : 1.3, color, active && i == selected ? 0.9 : 0.08, fill: true)
             if detailed {
-                let dx = [0.0, 10, 0, -10][i]
-                let dy = [-12.0, 0, 12, 0][i]
-                text(context, labels[i], Double(nodes[i].x) + dx, Double(nodes[i].y) + dy,
-                     active && i == selected ? color : palette.text(0.4), size: 9,
-                     anchor: i == 1 ? .leading : i == 3 ? .trailing : .center)
+                // Place side labels above/below their nodes so larger text fits
+                // inside the narrow panel without touching nodes or the rotor.
+                let dy = [-12.0, -13, 12, 13][i]
+                text(context, labels[i], Double(nodes[i].x), Double(nodes[i].y) + dy,
+                     active && i == selected ? color : palette.text(0.55), size: 9)
             }
         }
         if phase.showsAgentCycle {
@@ -132,7 +140,7 @@ struct MechanismScene {
             let rect = CGRect(x: x - size / 2 + shift + dx, y: y - size / 2 - shift, width: size, height: size + 2)
             let path = Path(roundedRect: rect, cornerRadius: 1.8)
             context.fill(path, with: .color(palette.background))
-            context.stroke(path, with: .color(color.opacity(active ? 0.55 : 0.2)), lineWidth: 0.7)
+            context.stroke(path, with: .color(color.opacity(active ? 0.7 : 0.38)), lineWidth: 0.8)
             line(context, [CGPoint(x: rect.minX + 2, y: rect.midY), CGPoint(x: rect.maxX - 2, y: rect.midY)],
                  color, 0.6, active ? 0.5 : 0.15)
         }
@@ -157,13 +165,13 @@ struct MechanismScene {
             path.addLines(plane)
             path.closeSubpath()
             context.fill(path, with: .color(palette.background))
-            context.stroke(path, with: .color(color.opacity(0.17 + energy * 0.5)), lineWidth: 0.8)
+            context.stroke(path, with: .color(color.opacity(0.30 + energy * 0.5)), lineWidth: 0.9)
             for row in 0..<4 {
                 for col in 0..<4 {
                     let px = x + Double(col - row) * pitch
                     let py = origin + 2 + Double(col + row) * depth
                     let strength = col <= row ? 0.18 + 0.58 * (0.5 + 0.5 * sin(elapsed * 2.6 + Double(row) * 0.9 - Double(col) * 0.7 - Double(layer))) : 0.035
-                    let opacity = active ? strength * (0.28 + energy * 0.7) : 0.06
+                    let opacity = active ? strength * (0.38 + energy * 0.6) : 0.14
                     var tile = Path()
                     tile.addLines([CGPoint(x: px, y: py), CGPoint(x: px + pitch * 0.8, y: py + depth * 0.8),
                                    CGPoint(x: px, y: py + depth * 1.6), CGPoint(x: px - pitch * 0.8, y: py + depth * 0.8)])
@@ -187,7 +195,7 @@ struct MechanismScene {
             let lit = phase == .receiving && i <= chosen
             let rect = CGRect(x: px, y: tokenY - 5, width: tokenWidth, height: detailed ? 11 : 5)
             let tile = Path(roundedRect: rect, cornerRadius: 2)
-            context.fill(tile, with: .color(color.opacity(lit ? 0.18 : 0.04)))
+            context.fill(tile, with: .color(color.opacity(lit ? 0.25 : 0.10)))
             if lit && i == chosen { context.stroke(tile, with: .color(color.opacity(0.7)), lineWidth: 0.7) }
             if detailed { text(context, "t\(i + 1)", Double(rect.midX), Double(rect.midY), lit ? color : palette.text(0.4), size: 8) }
         }

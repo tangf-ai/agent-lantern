@@ -32,7 +32,7 @@ jobs:
       - name: Test completion sound rules
         run: |
           mkdir -p build.noindex
-          swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+          swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
           build.noindex/completion-gate-test
       - name: Build and verify ad-hoc signed app
         run: python3 build.py

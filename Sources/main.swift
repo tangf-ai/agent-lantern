@@ -99,6 +99,7 @@ final class Model: ObservableObject {
     var lastQuote = ""
     var completionGate = CompletionGate()
     var transferGate = TransferPlaybackGate()
+    var lastFlowTask: AgentTask?
     let completionSound = NSSound(named: "Glass")
     let preview: Bool
 
@@ -130,6 +131,14 @@ final class Model: ObservableObject {
     }
 
     var running: Int { tasks.filter { $0.state == "running" }.count }
+    var visualTasks: [AgentTask] {
+        if !tasks.isEmpty { return tasks }
+        guard finished, var last = lastFlowTask else { return [] }
+        last.state = "ended"
+        last.speed = nil
+        last.flow = nil
+        return [last]
+    }
     var waiting: Int { tasks.filter { $0.state == "waiting" }.count }
     var degraded: Bool { !monitorHealthy || adapters.contains { $0.status == "degraded" } }
     var effectiveDark: Bool { theme == .dark || (theme == .system && systemDark) }
@@ -245,6 +254,7 @@ final class Model: ObservableObject {
     }
     func apply(_ snapshot: Snapshot) {
         let hadTasks = !tasks.isEmpty
+        if let last = tasks.first { lastFlowTask = last }
         monitorHealthy = true
         var incoming = snapshot.tasks
         for index in incoming.indices where incoming[index].flow == nil {
@@ -263,6 +273,7 @@ final class Model: ObservableObject {
         tasks = incoming
         adapters = snapshot.adapters
         if !tasks.isEmpty {
+            lastFlowTask = tasks.first
             hideWork?.cancel()
             finished = false
             manualVisible = false
@@ -326,6 +337,9 @@ struct LanternView: View {
     @ObservedObject var model: Model
     var openMenu: () -> Void
     var palette: Palette { model.palette }
+    // Only the garden children observe frame updates; the rest of the panel stays event-driven.
+    @State private var windClock = WindClock()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
@@ -370,8 +384,8 @@ struct LanternView: View {
             }.buttonStyle(.plain).padding(.horizontal, 21)
                 .accessibilityLabel(model.expanded ? "收起任务详情" : "展开任务详情")
 
-            if !model.tasks.isEmpty && !model.expanded {
-                MessageFlowCarousel(tasks: model.tasks, palette: palette, animationsEnabled: model.animateWork, demo: model.demo)
+            if !model.visualTasks.isEmpty && !model.expanded {
+                MessageFlowCarousel(tasks: model.visualTasks, palette: palette, animationsEnabled: model.animateWork, windClock: windClock, demo: model.demo)
                     .padding(.horizontal, 21).padding(.bottom, 13)
             }
             Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1).padding(.horizontal, 20)
@@ -390,11 +404,11 @@ struct LanternView: View {
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {
-                            if model.tasks.isEmpty {
+                            if model.visualTasks.isEmpty {
                                 Text("新任务开始时，小灯会自动亮起。")
                                     .font(.system(size: 11)).foregroundStyle(palette.text(0.5))
                             }
-                            ForEach(model.tasks) { task in
+                            ForEach(model.visualTasks) { task in
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack(alignment: .top, spacing: 9) {
                                         Circle().fill(task.state == "waiting" ? palette.warning : palette.accent)
@@ -403,9 +417,9 @@ struct LanternView: View {
                                             HStack {
                                                 Text(task.agent).font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.text(0.85))
                                                 Spacer()
-                                                Text(task.state == "waiting" ? "等你确认" : "进行中")
+                                                Text(task.state == "ended" ? "已结束" : task.state == "waiting" ? "等你确认" : "进行中")
                                                     .font(.system(size: 10)).foregroundStyle(task.state == "waiting" ? palette.warning : palette.accent)
-                                                if task.started > 0 {
+                                                if task.started > 0 && task.state != "ended" {
                                                     TimelineView(.periodic(from: .now, by: 1)) { context in
                                                         Text(elapsed(context.date.timeIntervalSince1970 - task.started))
                                                             .font(.system(size: 10, design: .monospaced)).foregroundStyle(palette.text(0.35))
@@ -422,12 +436,12 @@ struct LanternView: View {
                                         }
                                     }.help(task.evidence)
                                     MessageFlowView(task: task, palette: palette, animationsEnabled: model.animateWork,
-                                                    demo: model.demo, detailed: true)
+                                                    windClock: windClock, demo: model.demo, detailed: true)
                                         .padding(.leading, 13)
                                 }
                             }
                         }.padding(.vertical, 15)
-                    }.frame(height: min(CGFloat(max(model.tasks.count, 1)) * 245 + 30, 310))
+                    }.frame(height: min(CGFloat(max(model.visualTasks.count, 1)) * 265 + 30, 330))
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     VStack(alignment: .leading, spacing: 9) {
                         ForEach(model.adapters) { adapter in
@@ -450,6 +464,16 @@ struct LanternView: View {
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .stroke(palette.border, lineWidth: 0.7))
         .environment(\.colorScheme, model.effectiveDark ? .dark : .light)
+        .onAppear { configureWind() }
+        .onChange(of: model.animateWork) { _, _ in configureWind() }
+        .onChange(of: model.activityPhase) { _, _ in configureWind() }
+        .onChange(of: model.visualTasks.count) { _, _ in configureWind() }
+        .onChange(of: reduceMotion) { _, _ in configureWind() }
+        .onDisappear { windClock.configure(enabled: false, phase: model.activityPhase) }
+    }
+    private func configureWind() {
+        windClock.configure(enabled: model.animateWork && !model.visualTasks.isEmpty && !reduceMotion,
+                            phase: model.activityPhase)
     }
     func elapsed(_ seconds: Double) -> String {
         let value = max(0, Int(seconds))
@@ -526,7 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             switch args[index + 1] {
             case "waiting": model.tasks = model.tasks.map { var task = $0; task.state = "waiting"; return task }
             case "idle": model.tasks = []
-            case "completed": model.tasks = []; model.finished = true
+            case "completed": model.lastFlowTask = model.tasks.first; model.tasks = []; model.finished = true
             default: break
             }
         }
