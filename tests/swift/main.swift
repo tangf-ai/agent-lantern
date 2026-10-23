@@ -189,3 +189,23 @@ check(sideBusy.mechanismTime == frozenSide, "Hidden/reduced-motion scenes must n
 sideBusy.resume(at: 600); sideBusy.advance(at: 600, mood: .working, tempo: .intense)
 check(sideBusy.mechanismTime == frozenSide, "Resuming must preserve the integrated side clock")
 print("Side mechanisms: observed role guards, standby, per-task waiting, pause/resume, repeated configuration and bounded adaptive motion: PASS")
+
+var backdrop = WindMotion()
+backdrop.resume(at: 0)
+var foregroundWraps = 0, backgroundWraps = 0
+for i in 1...1800 {
+    let old = backdrop.angle, oldBackdrop = backdrop.backdropAngle
+    backdrop.advance(at: Double(i) / 30, mood: .working, tempo: .intense)
+    if backdrop.angle < old { foregroundWraps += 1 }
+    if backdrop.backdropAngle < oldBackdrop { backgroundWraps += 1 }
+    let delta = (backdrop.backdropAngle - oldBackdrop + .pi * 2).truncatingRemainder(dividingBy: .pi * 2)
+    check(abs(delta - backdrop.speed / 60) < 0.000001,
+          "Background rotation must remain continuous through foreground and background wrap boundaries")
+}
+check(foregroundWraps > backgroundWraps && backgroundWraps > 2,
+      "A large background rotor must turn at half the foreground speed without jumping")
+backdrop.pause(); let backgroundPause = backdrop.backdropAngle
+backdrop.advance(at: 300, mood: .working)
+backdrop.resume(at: 400); backdrop.advance(at: 400, mood: .working)
+check(backdrop.backdropAngle == backgroundPause, "Background hide/reduce-motion and resume must preserve its angle")
+print("Background rotor: gentle speed, continuous independent wraps, pause and no resume fast-forward: PASS")

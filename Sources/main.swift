@@ -497,11 +497,22 @@ struct LanternView: View {
                     AuroraBackgroundView(clock: windClock, palette: palette,
                                          strength: model.auroraStrength, landscape: model.auroraLandscape)
                 }
+                WindBackdropView(clock: windClock, palette: palette)
                 if model.meteorEnabled {
                     MeteorBackgroundView(clock: windClock, palette: palette,
                                          moving: model.animateWork && !reduceMotion,
                                          strength: model.meteorStrength)
                 }
+                // Restore a quiet surface beneath the header and quote while
+                // keeping the large rotor clear in the middle of the window.
+                LinearGradient(stops: [
+                    .init(color: palette.background, location: 0),
+                    .init(color: palette.background.opacity(0), location: 0.28),
+                    .init(color: palette.background.opacity(0), location: 0.68),
+                    .init(color: palette.background.opacity(0.72), location: 0.82),
+                    .init(color: palette.background, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                .allowsHitTesting(false)
             }.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -518,7 +529,7 @@ struct LanternView: View {
         .onDisappear { windClock.configure(enabled: false, phase: model.activityPhase) }
     }
     private func configureWind() {
-        windClock.configure(enabled: model.animateWork && (model.meteorEnabled || model.auroraEnabled || !model.visualTasks.isEmpty) && !reduceMotion,
+        windClock.configure(enabled: model.animateWork && !reduceMotion,
                             phase: model.activityPhase, tempo: model.animationTempo)
     }
     func elapsed(_ seconds: Double) -> String {

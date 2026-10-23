@@ -39,6 +39,7 @@ struct MessageFlowView: View {
                     Text(detailed ? "模型内部示意" : "大模型").font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity)
                 }.foregroundStyle(palette.text(0.85)).lineLimit(1).minimumScaleFactor(0.9)
+                    .shadow(color: palette.background, radius: 3)
                 TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving && !sideMoving)) { frame in
                     let wall = moving ? frame.date.timeIntervalSince1970 : now
                     let elapsed = moving ? frame.date.timeIntervalSince(created) : 0.9
@@ -51,12 +52,11 @@ struct MessageFlowView: View {
                     ZStack {
                         Canvas { context, size in scene.draw(context, size: size) }
                         GeometryReader { geometry in
-                            WindGardenView(clock: windClock, palette: palette,
-                                           side: min(96, geometry.size.width / 3 - 1))
+                            WindGustButton(clock: windClock, side: min(96, geometry.size.width / 3 - 1))
                                 .position(x: geometry.size.width / 2, y: 56)
                         }
-                        // Keep traffic visible as it crosses blades and mast;
-                        // this layer must not intercept clicks on the windmill.
+                        // Traffic stays above the window's background rotor and
+                        // never intercepts the center's breeze interaction.
                         Canvas { context, size in scene.draw(context, size: size, layer: .transfers) }
                             .allowsHitTesting(false)
                     }
@@ -69,9 +69,11 @@ struct MessageFlowView: View {
                 .frame(height: detailed ? 144 : 112)
                 Text(pulse?.title ?? mechanismLabel(phase))
                     .font(.system(size: 12)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.65))
+                    .shadow(color: palette.background, radius: 3)
                     .frame(height: 18).lineLimit(1).minimumScaleFactor(0.9)
                 Text("两侧为原理示意 · 非模型内部遥测")
                     .font(.system(size: 12)).foregroundStyle(palette.text(0.60))
+                    .shadow(color: palette.background, radius: 3)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 if !detailed {
                     HStack(spacing: 4) {

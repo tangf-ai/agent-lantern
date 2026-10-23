@@ -14,6 +14,9 @@ enum WindMood {
 /// Decorative motion only. Tempo reflects observed activity, never TPS or progress.
 struct WindMotion {
     private(set) var angle = -0.25
+    // A large background rotor turns more gently. Integrate its own angle:
+    // multiplying the wrapped foreground angle would jump at every full turn.
+    private(set) var backdropAngle = -0.25
     private(set) var speed = 0.82
     private(set) var breeze = 0.0
     private(set) var meteorTime = 0.0
@@ -55,6 +58,7 @@ struct WindMotion {
         let target = mood.speed * tempoRate + gust
         speed += (target - speed) * (1 - exp(-dt * 2))
         angle = (angle + speed * dt).truncatingRemainder(dividingBy: .pi * 2)
+        backdropAngle = (backdropAngle + speed * dt * 0.5).truncatingRemainder(dividingBy: .pi * 2)
         let step = dt * (mood == .waiting ? 0.6 : 1)
         breeze += step
         // Integrate separate clocks: changing speed cannot teleport a meteor or curtain.
