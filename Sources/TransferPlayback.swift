@@ -4,6 +4,11 @@ struct FlowTransfer: Codable, Equatable {
     var id: String
     var kind: String
     var at: Double
+
+    func isRecent(started: Double, now: Double) -> Bool {
+        !id.isEmpty && id.count <= 200 && ["request", "response", "context"].contains(kind) &&
+            at.isFinite && at >= started && at <= now && now - at <= 8
+    }
 }
 
 struct TransferPulse: Codable, Equatable {
@@ -49,10 +54,7 @@ struct TransferPlaybackGate {
         }
         seen = seen.filter { now - $0.value <= 60 }
         for batch in batches {
-            let fresh = batch.events.filter {
-                !$0.id.isEmpty && $0.id.count <= 200 && ["request", "response", "context"].contains($0.kind) &&
-                $0.at.isFinite && $0.at >= batch.started && $0.at <= now && now - $0.at <= 8
-            }.sorted(by: ordered)
+            let fresh = batch.events.filter { $0.isRecent(started: batch.started, now: now) }.sorted(by: ordered)
             var latest: [String: FlowTransfer] = [:]
             for event in fresh {
                 let key = batch.task + ":" + event.id

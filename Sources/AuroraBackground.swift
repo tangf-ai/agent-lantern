@@ -11,7 +11,7 @@ struct AuroraBackgroundView: View {
     var body: some View {
         // Keep the 30 fps shared clock; only repaint the slow light curtains at 12 fps.
         // Pause the existing phase, rather than replacing it with a different static scene.
-        AuroraFrame(palette: palette, time: floor(clock.motion.breeze * 12) / 12,
+        AuroraFrame(palette: palette, time: clock.motion.auroraTime, renderTick: Int(floor(clock.motion.breeze * 12)),
                     strength: strength, landscape: landscape)
             .equatable()
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
@@ -27,8 +27,15 @@ struct AuroraBackgroundView: View {
 private struct AuroraFrame: View, Equatable {
     var palette: Palette
     var time: Double
+    var renderTick: Int
     var strength: Double
     var landscape: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Cadence follows the unscaled clock, even when the curtain moves a little faster.
+        lhs.renderTick == rhs.renderTick && lhs.palette == rhs.palette &&
+            lhs.strength == rhs.strength && lhs.landscape == rhs.landscape
+    }
 
     var body: some View {
         Canvas { context, size in

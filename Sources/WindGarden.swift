@@ -6,11 +6,13 @@ final class WindClock: ObservableObject {
     @Published private(set) var motion = WindMotion()
     @Published private(set) var mood = WindMood.working
     private var requested = false
+    private var tempo = AnimationTempo.calm
     private var consumers = Set<UUID>()
     private var timer: Timer?
 
-    func configure(enabled: Bool, phase: ActivityPhase) {
+    func configure(enabled: Bool, phase: ActivityPhase, tempo: AnimationTempo = .calm) {
         requested = enabled
+        self.tempo = tempo
         let next: WindMood = phase == .waiting ? .waiting : phase == .completed ? .finished : .working
         if mood != next { mood = next }
         refresh()
@@ -24,7 +26,7 @@ final class WindClock: ObservableObject {
             motion.resume(at: ProcessInfo.processInfo.systemUptime)
             let next = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                 guard let self else { return }
-                self.motion.advance(at: ProcessInfo.processInfo.systemUptime, mood: self.mood)
+                self.motion.advance(at: ProcessInfo.processInfo.systemUptime, mood: self.mood, tempo: self.tempo)
             }
             timer = next
             RunLoop.main.add(next, forMode: .common)
@@ -53,7 +55,7 @@ struct WindGardenView: View {
             }.frame(width: side, height: 104).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("点风机吹一阵轻风。微风仅作陪伴，转速不代表 TPS 或任务进度；动画关闭或减少动态效果时保持静态。")
+        .help("点风机吹一阵轻风。启用自适应动画时，转速随已确认的任务和近期活动平滑调整，不代表 TPS 或任务进度；关闭动画或减少动态效果时保持静态。")
         .accessibilityLabel("吹一阵轻风")
         .accessibilityHint("只改变陪伴动效，不影响智能体工作")
         .onAppear { clock.appear(consumer) }

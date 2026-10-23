@@ -84,6 +84,8 @@ final class Model: ObservableObject {
     @Published var auroraEnabled = UserDefaults.standard.object(forKey: "auroraEnabled") as? Bool ?? true
     @Published var auroraStrength = min(0.7, max(0.15, UserDefaults.standard.object(forKey: "auroraStrength") as? Double ?? 0.18))
     @Published var auroraLandscape = UserDefaults.standard.object(forKey: "auroraLandscape") as? Bool ?? true
+    @Published var adaptiveAnimations = UserDefaults.standard.object(forKey: "adaptiveAnimations") as? Bool ?? true
+    @Published private(set) var recentAnimationActivities = 0
     @Published var sessionActive = true
     @Published var showIdle = UserDefaults.standard.bool(forKey: "showIdle")
     @Published var quoteInterval = UserDefaults.standard.double(forKey: "quoteInterval") == 0
@@ -104,6 +106,7 @@ final class Model: ObservableObject {
     var lastQuote = ""
     var completionGate = CompletionGate()
     var transferGate = TransferPlaybackGate()
+    var animationActivity = AnimationActivityWindow()
     var lastFlowTask: AgentTask?
     let completionSound = NSSound(named: "Glass")
     let preview: Bool
@@ -136,6 +139,9 @@ final class Model: ObservableObject {
     }
 
     var running: Int { tasks.filter { $0.state == "running" }.count }
+    var animationTempo: AnimationTempo {
+        adaptiveAnimations ? .resolve(running: running, recentActivities: recentAnimationActivities) : .calm
+    }
     var visualTasks: [AgentTask] {
         if !tasks.isEmpty { return tasks }
         guard finished, var last = lastFlowTask else { return [] }
@@ -211,6 +217,8 @@ final class Model: ObservableObject {
         let p = Process()
         completionGate = CompletionGate()
         transferGate = TransferPlaybackGate()
+        animationActivity = AnimationActivityWindow()
+        recentAnimationActivities = 0
         p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         p.arguments = ["-u", script.path]
         let out = Pipe()
@@ -275,6 +283,22 @@ final class Model: ObservableObject {
             let id = incoming[index].id
             incoming[index].flow?.playback = playback[id]
         }
+        let activityNow = Date().timeIntervalSince1970
+        if snapshot.updated.isFinite && abs(activityNow - snapshot.updated) <= 15 {
+            let observed = Set(incoming.flatMap { task in
+                // Count validated observation metadata, not the deliberately
+                // throttled playback queue, so real bursts are not collapsed.
+                (task.flow?.transfers ?? []).filter { $0.isRecent(started: task.started, now: snapshot.updated) }.map {
+                    AnimationActivity(task: task.id, event: $0.id)
+                }
+            })
+            let count = animationActivity.update(running: Set(incoming.filter { $0.state == "running" }.map { $0.id }),
+                                                 observed: observed, at: activityNow)
+            if recentAnimationActivities != count { recentAnimationActivities = count }
+        } else {
+            animationActivity = AnimationActivityWindow()
+            recentAnimationActivities = 0
+        }
         tasks = incoming
         adapters = snapshot.adapters
         if !tasks.isEmpty {
@@ -298,6 +322,8 @@ final class Model: ObservableObject {
     func toggleDemo() {
         hideWork?.cancel()
         finished = false
+        animationActivity = AnimationActivityWindow()
+        recentAnimationActivities = 0
         demo.toggle()
         if demo {
             monitorHealthy = true
@@ -487,12 +513,13 @@ struct LanternView: View {
         .onChange(of: model.visualTasks.count) { _, _ in configureWind() }
         .onChange(of: model.meteorEnabled) { _, _ in configureWind() }
         .onChange(of: model.auroraEnabled) { _, _ in configureWind() }
+        .onChange(of: model.animationTempo) { _, _ in configureWind() }
         .onChange(of: reduceMotion) { _, _ in configureWind() }
         .onDisappear { windClock.configure(enabled: false, phase: model.activityPhase) }
     }
     private func configureWind() {
         windClock.configure(enabled: model.animateWork && (model.meteorEnabled || model.auroraEnabled || !model.visualTasks.isEmpty) && !reduceMotion,
-                            phase: model.activityPhase)
+                            phase: model.activityPhase, tempo: model.animationTempo)
     }
     func elapsed(_ seconds: Double) -> String {
         let value = max(0, Int(seconds))
@@ -568,6 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if model.preview && args.contains("--preview-no-meteors") { model.meteorEnabled = false }
         if model.preview && args.contains("--preview-no-aurora") { model.auroraEnabled = false }
         if model.preview && args.contains("--preview-no-landscape") { model.auroraLandscape = false }
+        if model.preview && args.contains("--preview-fixed-tempo") { model.adaptiveAnimations = false }
         if model.preview, let index = args.firstIndex(of: "--preview-state"), args.indices.contains(index + 1) {
             switch args[index + 1] {
             case "waiting": model.tasks = model.tasks.map { var task = $0; task.state = "waiting"; return task }
@@ -596,6 +624,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         if model.preview && args.contains("--preview-single") { model.tasks = Array(model.tasks.prefix(1)) }
+        if model.preview, let index = args.firstIndex(of: "--preview-task-count"), args.indices.contains(index + 1),
+           let count = Int(args[index + 1]), (1...12).contains(count), let first = model.tasks.first {
+            model.tasks = (0..<count).map { index in
+                var task = first; task.id = "tempo-demo-\(index)"; return task
+            }
+        }
         if args.contains("--no-animation") { model.animationsEnabled = false }
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
@@ -714,6 +748,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         themeParent.submenu = themes
         add("工作动画", #selector(toggleAnimations)).state = model.animationsEnabled ? .on : .off
+        add("随忙碌程度加速", #selector(toggleAdaptiveAnimations)).state = model.adaptiveAnimations ? .on : .off
+        add("当前节奏：\(model.animationTempo.title)", nil).isEnabled = false
         add("流星背景", #selector(toggleMeteors)).state = model.meteorEnabled ? .on : .off
         let meteorParent = add("流星亮度", nil)
         let meteorMenu = NSMenu()
@@ -794,6 +830,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func toggleMeteors() {
         model.meteorEnabled.toggle()
         UserDefaults.standard.set(model.meteorEnabled, forKey: "meteorEnabled")
+    }
+    @objc func toggleAdaptiveAnimations() {
+        model.adaptiveAnimations.toggle()
+        UserDefaults.standard.set(model.adaptiveAnimations, forKey: "adaptiveAnimations")
     }
     @objc func changeMeteorStrength(_ entry: NSMenuItem) {
         guard [15, 25, 40, 60].contains(entry.tag) else { return }

@@ -18,7 +18,7 @@ struct MeteorBackgroundView: View {
                 context.fill(star, with: .color((warm ? palette.warning : palette.accent).opacity(0.35 * opacity)))
             }
             if moving {
-                let time = clock.motion.breeze
+                let time = clock.motion.meteorTime
                 let specs = [(-15.0, -62.0, 110.0, 2.5, 6.8, 1.8),
                              (-88.0, 40.0, 92.0, 2.0, 8.8, 4.5),
                              (-90.0, 160.0, 125.0, 2.0, 10.8, 8.0)]

@@ -17,6 +17,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 中间的「微风发电」陪伴动效：风机、草地与轻云，点击可短暂加风，转速不代表 TPS 或任务进度。
 - 等高对称的三列图形与更大的字号；仅保留事件驱动的收发光流，背景流星可独立开关、调节亮度。
 - 自然极光帷幕、星空与远山背景，默认强度 18%，支持开关、强度和远山设置；极光与流星独立运动。
+- 自适应陪伴节奏：运行任务越多、近期新活动越密集，风车与流星平滑加速，极光轻微跟随；排除等待确认和历史活动，可在菜单关闭。
 - 每个任务独立显示 TPS：明确区分流式实测速度、最近响应均速与暂无数据；不按字符或文字块猜测 token 数。
 - 单项任务结束提示音，支持试听、关闭、去重；启动和重连不会补响历史任务。
 - 只读本地状态，不调用模型，不上传对话，不结束或重启智能体。
@@ -25,7 +26,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.1-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.2-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -106,7 +107,7 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/AnimationTempo.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
@@ -121,6 +122,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 - `Sources/MechanismScene.swift`：能量脉冲、吸收涟漪、工作闭环及模型分层计算的原生矢量示意；不读取模型内部信息。
 - `Sources/WindMotion.swift` / `Sources/WindGarden.swift`：微风的运动积分、可见视图共用的时钟和原生风机插画，不读取 token 或进度数据。
 - `Sources/MeteorBackground.swift` / `Sources/AuroraBackground.swift`：独立的流星与极光陪伴场景；极光使用量化后的共享时钟控制重绘，支持主题、强度和远山设置。
+- `Sources/AnimationTempo.swift`：按运行任务和去重后的近期活动选择陪伴节奏；忽略启动、重连历史及等待任务，不估计 CPU、TPS 或任务进度。
 - `Sources/WorkingLight.swift`：原生 Canvas 工作核心和任务信号动画；隐藏、休眠和减少动态效果时停止连续刷新。
 - `Resources/collector.py`：Python 标准库只读适配器，以 JSONL 经私有管道交给 GUI；不监听端口。
 - `Resources/agent-lantern.ts`：Pi 轻量扩展，原子写入本地状态和心跳。
