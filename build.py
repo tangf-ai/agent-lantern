@@ -21,8 +21,8 @@ info = {
     "CFBundleDisplayName": "智能体工作灯",
     "CFBundleExecutable": "AgentLantern",
     "CFBundlePackageType": "APPL",
-    "CFBundleShortVersionString": "0.8.2",
-    "CFBundleVersion": "12",
+    "CFBundleShortVersionString": "0.9.1",
+    "CFBundleVersion": "14",
     "LSMinimumSystemVersion": "14.0",
     "LSUIElement": True,
     "NSHighResolutionCapable": True,
@@ -37,7 +37,7 @@ subprocess.run(["/usr/bin/swiftc", "-swift-version", "5", "-O", "-target", "arm6
                 "-framework", "AppKit", "-framework", "SwiftUI", str(ROOT / "Sources/CompletionGate.swift"),
                 str(ROOT / "Sources/WorkingLight.swift"), str(ROOT / "Sources/MessageFlow.swift"), str(ROOT / "Sources/TransferPlayback.swift"),
                 str(ROOT / "Sources/MessageFlowView.swift"), str(ROOT / "Sources/MechanismScene.swift"), str(ROOT / "Sources/WindMotion.swift"),
-                str(ROOT / "Sources/WindGarden.swift"), str(ROOT / "Sources/main.swift"),
+                str(ROOT / "Sources/WindGarden.swift"), str(ROOT / "Sources/MeteorBackground.swift"), str(ROOT / "Sources/AuroraBackground.swift"), str(ROOT / "Sources/main.swift"),
                 "-o", str(CONTENTS / "MacOS/AgentLantern")], check=True)
 subprocess.run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(APP)], check=True)
 subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(APP)], check=True)

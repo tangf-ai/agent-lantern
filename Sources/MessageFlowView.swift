@@ -28,14 +28,15 @@ struct MessageFlowView: View {
             let pulse = activePulse(now: now, phase: phase)
             let moving = canAnimate && (phase.moving || pulse != nil)
             VStack(spacing: 5) {
-                HStack(spacing: 4) {
-                    Text(detailed ? "工作闭环示意" : task.agent).font(.system(size: 10, weight: .semibold))
-                    Spacer(minLength: 2)
-                    Text(phase.title).font(.system(size: 9))
+                HStack(spacing: 0) {
+                    Text(detailed ? "工作闭环示意" : task.agent).font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                    Text(phase.title).font(.system(size: 12))
                         .foregroundStyle(phase == .waiting ? palette.warning : palette.text(0.55))
-                    Spacer(minLength: 2)
-                    Text(detailed ? "模型内部示意" : "大模型").font(.system(size: 10, weight: .medium))
-                }.foregroundStyle(palette.text(0.75))
+                        .frame(maxWidth: .infinity)
+                    Text(detailed ? "模型内部示意" : "大模型").font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                }.foregroundStyle(palette.text(0.85)).lineLimit(1).minimumScaleFactor(0.9)
                 TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { frame in
                     let wall = moving ? frame.date.timeIntervalSince1970 : now
                     let elapsed = moving ? frame.date.timeIntervalSince(created) : 0.9
@@ -47,8 +48,9 @@ struct MessageFlowView: View {
                     ZStack {
                         Canvas { context, size in scene.draw(context, size: size) }
                         GeometryReader { geometry in
-                            WindGardenView(clock: windClock, palette: palette)
-                                .position(x: geometry.size.width / 2, y: detailed ? 75 : 70)
+                            WindGardenView(clock: windClock, palette: palette,
+                                           side: min(96, geometry.size.width / 3 - 1))
+                                .position(x: geometry.size.width / 2, y: 56)
                         }
                         // Keep traffic visible as it crosses blades and mast;
                         // this layer must not intercept clicks on the windmill.
@@ -56,19 +58,20 @@ struct MessageFlowView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .frame(height: detailed ? 170 : 140)
+                .frame(height: detailed ? 144 : 112)
                 Text(pulse?.title ?? (phase == .waiting ? "等待确认 · 通信暂停" : phase == .ended ? "本次运行已结束 · 微风相伴" : "收发由事件驱动"))
-                    .font(.system(size: 9)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.5))
-                    .frame(height: 11).lineLimit(1)
+                    .font(.system(size: 12)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.65))
+                    .frame(height: 18).lineLimit(1).minimumScaleFactor(0.9)
                 Text(detailed ? "模型内部为原理示意 · 微风不表示进度" : "模型内部示意 · 微风仅作陪伴")
-                    .font(.system(size: 9)).foregroundStyle(palette.text(0.43))
+                    .font(.system(size: 12)).foregroundStyle(palette.text(0.60))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 if !detailed {
                     HStack(spacing: 4) {
                         Circle().fill(palette.accent.opacity(0.6)).frame(width: 3, height: 3)
                         Text(demo ? "演示 · 非真实请求" : sourceLabel)
-                            .font(.system(size: 9)).foregroundStyle(palette.text(0.4))
+                            .font(.system(size: 12)).foregroundStyle(palette.text(0.55))
                         Spacer(minLength: 4)
-                        Text(task.label).font(.system(size: 9)).foregroundStyle(palette.text(0.4))
+                        Text(task.label).font(.system(size: 12)).foregroundStyle(palette.text(0.55))
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }

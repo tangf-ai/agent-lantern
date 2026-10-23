@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 
-/// One clock for all visible wind gardens, so switching agents doesn't reset the rotor.
+/// One visible clock for wind gardens and meteors; switching agents preserves motion.
 final class WindClock: ObservableObject {
     @Published private(set) var motion = WindMotion()
     @Published private(set) var mood = WindMood.working
@@ -39,6 +39,7 @@ final class WindClock: ObservableObject {
 struct WindGardenView: View {
     @ObservedObject var clock: WindClock
     var palette: Palette
+    var side: CGFloat = 96
     @State private var consumer = UUID()
 
     var body: some View {
@@ -46,10 +47,10 @@ struct WindGardenView: View {
             Canvas { context, size in
                 var enlarged = context
                 enlarged.translateBy(x: size.width / 2, y: size.height / 2)
-                enlarged.scaleBy(x: 1.5, y: 1.5)
+                enlarged.scaleBy(x: side / 86, y: side / 86)
                 WindGardenScene(palette: palette, motion: clock.motion, mood: clock.mood)
                     .draw(enlarged, center: .zero)
-            }.frame(width: 150, height: 136).contentShape(Rectangle())
+            }.frame(width: side, height: 104).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("点风机吹一阵轻风。微风仅作陪伴，转速不代表 TPS 或任务进度；动画关闭或减少动态效果时保持静态。")
@@ -71,16 +72,16 @@ private struct WindGardenScene {
 
     func draw(_ original: GraphicsContext, center: CGPoint) {
         var context = original
-        context.translateBy(x: center.x, y: center.y)
+        context.translateBy(x: center.x, y: center.y + 4)
         let t = motion.breeze
         let sway = sin(t * 0.8) * 1.2
-        ellipse(context, 0, 40, 19, 3, palette.ink, 0.045)
+        ellipse(context, 0, 36, 19, 2, palette.ink, 0.045)
         glow(context, 0, -15, 39, palette.warning, mood == .finished ? 0.10 : 0.045)
         var hill = Path()
-        hill.move(to: CGPoint(x: -45, y: 35))
+        hill.move(to: CGPoint(x: -40, y: 35))
         hill.addCurve(to: CGPoint(x: 2, y: 32), control1: CGPoint(x: -23, y: 25), control2: CGPoint(x: -13, y: 27))
-        hill.addCurve(to: CGPoint(x: 45, y: 35), control1: CGPoint(x: 18, y: 27), control2: CGPoint(x: 32, y: 29))
-        hill.addQuadCurve(to: CGPoint(x: -45, y: 35), control: CGPoint(x: 1, y: 43))
+        hill.addCurve(to: CGPoint(x: 40, y: 35), control1: CGPoint(x: 18, y: 27), control2: CGPoint(x: 29, y: 29))
+        hill.addQuadCurve(to: CGPoint(x: -40, y: 35), control: CGPoint(x: 1, y: 43))
         context.fill(hill, with: .color(green.opacity(0.32)))
         for x in [-31.0, -24, 22, 32] {
             var grass = Path()
@@ -120,6 +121,7 @@ private struct WindGardenScene {
             var rotor = context
             rotor.translateBy(x: 0, y: -18)
             rotor.rotate(by: .radians(motion.angle + Double(i) * .pi * 2 / 3))
+            rotor.scaleBy(x: 1.25, y: 1.28)
             var shape = Path()
             shape.move(to: CGPoint(x: -0.8, y: 1))
             shape.addCurve(to: CGPoint(x: -1.5, y: -18.5), control1: CGPoint(x: -3.2, y: -3), control2: CGPoint(x: -3.1, y: -10))

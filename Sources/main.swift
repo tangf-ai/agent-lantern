@@ -46,7 +46,7 @@ enum ThemeChoice: String, CaseIterable {
         }
     }
 }
-struct Palette {
+struct Palette: Equatable {
     var background: Color
     var ink: Color
     var accent: Color
@@ -79,6 +79,11 @@ final class Model: ObservableObject {
     @Published var systemDark = false
     @Published var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
     @Published var animationsEnabled = UserDefaults.standard.object(forKey: "animationsEnabled") as? Bool ?? true
+    @Published var meteorEnabled = UserDefaults.standard.object(forKey: "meteorEnabled") as? Bool ?? true
+    @Published var meteorStrength = min(0.6, max(0.15, UserDefaults.standard.object(forKey: "meteorStrength") as? Double ?? 0.25))
+    @Published var auroraEnabled = UserDefaults.standard.object(forKey: "auroraEnabled") as? Bool ?? true
+    @Published var auroraStrength = min(0.7, max(0.15, UserDefaults.standard.object(forKey: "auroraStrength") as? Double ?? 0.18))
+    @Published var auroraLandscape = UserDefaults.standard.object(forKey: "auroraLandscape") as? Bool ?? true
     @Published var sessionActive = true
     @Published var showIdle = UserDefaults.standard.bool(forKey: "showIdle")
     @Published var quoteInterval = UserDefaults.standard.double(forKey: "quoteInterval") == 0
@@ -337,7 +342,7 @@ struct LanternView: View {
     @ObservedObject var model: Model
     var openMenu: () -> Void
     var palette: Palette { model.palette }
-    // Only the garden children observe frame updates; the rest of the panel stays event-driven.
+    // Only decorative canvas children observe frames; the panel stays event-driven.
     @State private var windClock = WindClock()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -347,12 +352,13 @@ struct LanternView: View {
                              hasWaiting: model.waiting > 0, animationsEnabled: model.animateWork)
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
-                        Text("小灯").font(.system(size: 10, weight: .semibold)).tracking(1.5)
+                        Text("小灯").font(.system(size: 12, weight: .semibold)).tracking(1.5)
                             .foregroundStyle(palette.text(0.44))
-                        if model.demo { Text("预览").font(.system(size: 9)).foregroundStyle(palette.warning) }
+                        if model.demo { Text("预览").font(.system(size: 11)).foregroundStyle(palette.warning) }
                     }
                     HStack(spacing: 7) {
-                        Text(model.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(palette.text(0.94))
+                        Text(model.title).font(.system(size: 20, weight: .semibold)).foregroundStyle(palette.text(0.94))
+                            .lineLimit(1).minimumScaleFactor(0.85)
                         if model.activityPhase == .working {
                             WorkingSignal(color: palette.accent, animationsEnabled: model.animateWork)
                         }
@@ -377,9 +383,9 @@ struct LanternView: View {
                         Text("\(model.waiting) 个待确认").foregroundStyle(palette.warning)
                     }
                     Image(systemName: model.expanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .font(.system(size: 10.5)).foregroundStyle(palette.text(0.48))
+                .font(.system(size: 13)).foregroundStyle(palette.text(0.60))
                 .contentShape(Rectangle()).padding(.vertical, 10)
             }.buttonStyle(.plain).padding(.horizontal, 21)
                 .accessibilityLabel(model.expanded ? "收起任务详情" : "展开任务详情")
@@ -393,11 +399,11 @@ struct LanternView: View {
             HStack(alignment: .center, spacing: 8) {
                 Text("“").font(.system(size: 25, weight: .light, design: .serif)).foregroundStyle(palette.accent.opacity(0.5))
                 Text(model.quote).id(model.quote)
-                    .font(.system(size: 12, weight: .regular)).foregroundStyle(palette.text(0.77))
+                    .font(.system(size: 15, weight: .regular)).foregroundStyle(palette.text(0.85))
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .offset(y: 3)))
                 Spacer(minLength: 0)
-            }.frame(height: 46).padding(.horizontal, 21)
+            }.frame(height: 60).padding(.horizontal, 21)
 
             if model.expanded {
                 VStack(alignment: .leading, spacing: 0) {
@@ -406,7 +412,7 @@ struct LanternView: View {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             if model.visualTasks.isEmpty {
                                 Text("新任务开始时，小灯会自动亮起。")
-                                    .font(.system(size: 11)).foregroundStyle(palette.text(0.5))
+                                    .font(.system(size: 13)).foregroundStyle(palette.text(0.6))
                             }
                             ForEach(model.visualTasks) { task in
                                 VStack(alignment: .leading, spacing: 6) {
@@ -415,19 +421,19 @@ struct LanternView: View {
                                             .frame(width: 5, height: 5).padding(.top, 5)
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
-                                                Text(task.agent).font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.text(0.85))
+                                                Text(task.agent).font(.system(size: 13, weight: .semibold)).foregroundStyle(palette.text(0.85))
                                                 Spacer()
                                                 Text(task.state == "ended" ? "已结束" : task.state == "waiting" ? "等你确认" : "进行中")
-                                                    .font(.system(size: 10)).foregroundStyle(task.state == "waiting" ? palette.warning : palette.accent)
+                                                    .font(.system(size: 12)).foregroundStyle(task.state == "waiting" ? palette.warning : palette.accent)
                                                 if task.started > 0 && task.state != "ended" {
                                                     TimelineView(.periodic(from: .now, by: 1)) { context in
                                                         Text(elapsed(context.date.timeIntervalSince1970 - task.started))
-                                                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(palette.text(0.35))
+                                                            .font(.system(size: 12, design: .monospaced)).foregroundStyle(palette.text(0.55))
                                                     }
                                                 }
                                             }
                                             HStack(spacing: 8) {
-                                                Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.48))
+                                                Text(task.label).font(.system(size: 13)).foregroundStyle(palette.text(0.60))
                                                     .lineLimit(1).truncationMode(.middle)
                                                 Spacer(minLength: 0)
                                                 SpeedBadge(speed: task.speed, palette: palette, demo: model.demo)
@@ -437,19 +443,18 @@ struct LanternView: View {
                                     }.help(task.evidence)
                                     MessageFlowView(task: task, palette: palette, animationsEnabled: model.animateWork,
                                                     windClock: windClock, demo: model.demo, detailed: true)
-                                        .padding(.leading, 13)
                                 }
                             }
                         }.padding(.vertical, 15)
-                    }.frame(height: min(CGFloat(max(model.visualTasks.count, 1)) * 265 + 30, 330))
+                    }.frame(height: min(CGFloat(max(model.visualTasks.count, 1)) * 285 + 30, 350))
                     Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1)
                     VStack(alignment: .leading, spacing: 9) {
                         ForEach(model.adapters) { adapter in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(adapter.status == "ready" ? palette.accent.opacity(0.7) : palette.warning.opacity(0.8))
                                     .frame(width: 4, height: 4).padding(.top, 4)
-                                Text(adapter.agent).font(.system(size: 10, weight: .medium)).lineLimit(1).frame(width: 52, alignment: .leading)
-                                Text(adapter.detail).font(.system(size: 10)).foregroundStyle(palette.text(0.42))
+                                Text(adapter.agent).font(.system(size: 12, weight: .medium)).lineLimit(1).frame(width: 62, alignment: .leading)
+                                Text(adapter.detail).font(.system(size: 12)).foregroundStyle(palette.text(0.60))
                                     .fixedSize(horizontal: false, vertical: true)
                             }.foregroundStyle(palette.text(0.6))
                         }
@@ -459,8 +464,20 @@ struct LanternView: View {
         }
         .padding(.bottom, 5)
         .frame(width: 334)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(palette.background.opacity(0.98)))
+        .background {
+            ZStack {
+                palette.background
+                if model.auroraEnabled {
+                    AuroraBackgroundView(clock: windClock, palette: palette,
+                                         strength: model.auroraStrength, landscape: model.auroraLandscape)
+                }
+                if model.meteorEnabled {
+                    MeteorBackgroundView(clock: windClock, palette: palette,
+                                         moving: model.animateWork && !reduceMotion,
+                                         strength: model.meteorStrength)
+                }
+            }.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .stroke(palette.border, lineWidth: 0.7))
         .environment(\.colorScheme, model.effectiveDark ? .dark : .light)
@@ -468,11 +485,13 @@ struct LanternView: View {
         .onChange(of: model.animateWork) { _, _ in configureWind() }
         .onChange(of: model.activityPhase) { _, _ in configureWind() }
         .onChange(of: model.visualTasks.count) { _, _ in configureWind() }
+        .onChange(of: model.meteorEnabled) { _, _ in configureWind() }
+        .onChange(of: model.auroraEnabled) { _, _ in configureWind() }
         .onChange(of: reduceMotion) { _, _ in configureWind() }
         .onDisappear { windClock.configure(enabled: false, phase: model.activityPhase) }
     }
     private func configureWind() {
-        windClock.configure(enabled: model.animateWork && !model.visualTasks.isEmpty && !reduceMotion,
+        windClock.configure(enabled: model.animateWork && (model.meteorEnabled || model.auroraEnabled || !model.visualTasks.isEmpty) && !reduceMotion,
                             phase: model.activityPhase)
     }
     func elapsed(_ seconds: Double) -> String {
@@ -493,7 +512,7 @@ struct SpeedBadge: View {
             let fresh = demo || (speed?.measuredAt.map { now - $0 <= (speed?.status == "live" ? 4 : 300) } ?? true)
             let valid = fresh && (speed?.value.map { $0.isFinite && $0 > 0 } ?? false)
             Text(label(valid: valid))
-                .font(.system(size: 10, weight: valid ? .medium : .regular)).monospacedDigit()
+                .font(.system(size: 12, weight: valid ? .medium : .regular)).monospacedDigit()
                 .foregroundStyle(valid && speed?.status == "live" ? palette.accent : palette.text(valid ? 0.65 : 0.45))
                 .lineLimit(1)
                 .help(speed?.detail ?? "尚未接入此任务的 TPS 数据，不将整个任务耗时作为生成耗时")
@@ -546,6 +565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Command-line theme overrides are only for artifact rendering; they do not change saved preferences.
         if let index = args.firstIndex(of: "--theme"), args.indices.contains(index + 1),
            let theme = ThemeChoice(rawValue: args[index + 1]) { model.theme = theme }
+        if model.preview && args.contains("--preview-no-meteors") { model.meteorEnabled = false }
+        if model.preview && args.contains("--preview-no-aurora") { model.auroraEnabled = false }
+        if model.preview && args.contains("--preview-no-landscape") { model.auroraLandscape = false }
         if model.preview, let index = args.firstIndex(of: "--preview-state"), args.indices.contains(index + 1) {
             switch args[index + 1] {
             case "waiting": model.tasks = model.tasks.map { var task = $0; task.state = "waiting"; return task }
@@ -692,6 +714,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         themeParent.submenu = themes
         add("工作动画", #selector(toggleAnimations)).state = model.animationsEnabled ? .on : .off
+        add("流星背景", #selector(toggleMeteors)).state = model.meteorEnabled ? .on : .off
+        let meteorParent = add("流星亮度", nil)
+        let meteorMenu = NSMenu()
+        for percent in [15, 25, 40, 60] {
+            let entry = NSMenuItem(title: "\(percent)%", action: #selector(changeMeteorStrength(_:)), keyEquivalent: "")
+            entry.target = self; entry.tag = percent
+            entry.state = abs(model.meteorStrength - Double(percent) / 100) < 0.001 ? .on : .off
+            meteorMenu.addItem(entry)
+        }
+        meteorParent.submenu = meteorMenu
+        add("极光帷幕", #selector(toggleAurora)).state = model.auroraEnabled ? .on : .off
+        let auroraParent = add("极光强度", nil)
+        let auroraMenu = NSMenu()
+        for percent in [15, 18, 30, 45, 70] {
+            let entry = NSMenuItem(title: "\(percent)%", action: #selector(changeAuroraStrength(_:)), keyEquivalent: "")
+            entry.target = self; entry.tag = percent
+            entry.state = abs(model.auroraStrength - Double(percent) / 100) < 0.001 ? .on : .off
+            auroraMenu.addItem(entry)
+        }
+        auroraParent.submenu = auroraMenu
+        add("远处山脊", #selector(toggleAuroraLandscape)).state = model.auroraLandscape ? .on : .off
         add("任务结束提示音", #selector(toggleSound)).state = model.soundEnabled ? .on : .off
         add("试听提示音", #selector(testSound))
         menu.addItem(.separator())
@@ -747,6 +790,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func toggleAnimations() {
         model.animationsEnabled.toggle()
         UserDefaults.standard.set(model.animationsEnabled, forKey: "animationsEnabled")
+    }
+    @objc func toggleMeteors() {
+        model.meteorEnabled.toggle()
+        UserDefaults.standard.set(model.meteorEnabled, forKey: "meteorEnabled")
+    }
+    @objc func changeMeteorStrength(_ entry: NSMenuItem) {
+        guard [15, 25, 40, 60].contains(entry.tag) else { return }
+        model.meteorStrength = Double(entry.tag) / 100
+        UserDefaults.standard.set(model.meteorStrength, forKey: "meteorStrength")
+    }
+    @objc func toggleAurora() {
+        model.auroraEnabled.toggle()
+        UserDefaults.standard.set(model.auroraEnabled, forKey: "auroraEnabled")
+    }
+    @objc func changeAuroraStrength(_ entry: NSMenuItem) {
+        guard [15, 18, 30, 45, 70].contains(entry.tag) else { return }
+        model.auroraStrength = Double(entry.tag) / 100
+        UserDefaults.standard.set(model.auroraStrength, forKey: "auroraStrength")
+    }
+    @objc func toggleAuroraLandscape() {
+        model.auroraLandscape.toggle()
+        UserDefaults.standard.set(model.auroraLandscape, forKey: "auroraLandscape")
     }
     @objc func testSound() { model.playCompletionSound(force: true) }
     @objc func systemAppearanceChanged() {
