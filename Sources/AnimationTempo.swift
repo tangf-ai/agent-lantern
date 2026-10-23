@@ -14,6 +14,7 @@ enum AnimationTempo: Int, CaseIterable {
     var wind: Double { [1, 1.3, 1.7, 2.2][rawValue] }
     var meteor: Double { [1, 1.2, 1.4, 1.65][rawValue] }
     var aurora: Double { [1, 1.04, 1.10, 1.18][rawValue] }
+    var mechanism: Double { [1, 1.15, 1.35, 1.6][rawValue] }
 }
 
 struct AnimationActivity: Hashable {

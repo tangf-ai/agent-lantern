@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A conceptual mechanism illustration. Only observed phases enable animation;
-/// layer count, cell brightness and token tiles are never internal model telemetry.
+/// Work phases highlight conceptual activity; standby only breathes and floats.
+/// Layer count, cell brightness and token tiles are never internal model telemetry.
 struct MechanismScene {
     enum Layer { case mechanisms, transfers }
     var palette: Palette
@@ -12,7 +12,10 @@ struct MechanismScene {
     var moving: Bool
     var transfer: TransferPulse? = nil
     var transferAge: Double? = nil
+    var sideElapsed: Double? = nil
     private let intensity = 1.3
+    private let sidePower = 1.5
+    private var sideTime: Double { sideElapsed ?? elapsed }
 
     func draw(_ context: GraphicsContext, size: CGSize, layer: Layer = .mechanisms) {
         let width = Double(size.width)
@@ -104,91 +107,145 @@ struct MechanismScene {
     }
 
     private func agent(_ context: GraphicsContext, x: Double, y: Double) {
+        let t = sideTime
         let orbit = 36.0
         let color = phase == .sending ? palette.warning : palette.accent
-        let active = phase.showsAgentCycle || phase == .sending || phase == .receiving
+        let active = phase.allowsMechanismMotion && (phase.showsAgentPrinciple || transfer != nil)
         let nodes = [CGPoint(x: x, y: y - orbit), CGPoint(x: x + orbit, y: y),
                      CGPoint(x: x, y: y + orbit), CGPoint(x: x - orbit, y: y)]
-        // Highlight the observed tool phase; the traversing light is a closed-loop illustration.
-        let selected = phase.showsAgentCycle ? 2 : phase == .sending ? 0 : 3
-        glow(context, CGPoint(x: x, y: y), 42, color, active ? 0.16 : 0.025)
+        let breathe = 0.5 + 0.5 * sin(t * 1.5)
+        glow(context, CGPoint(x: x, y: y), 43, color, active ? 0.12 + 0.07 * breathe : 0.045 + 0.015 * breathe)
+        circle(context, CGPoint(x: x, y: y), 39.5, palette.accent, 0.18)
+        let spin = t * (active ? 0.8 : 0.12)
+        arc(context, CGPoint(x: x, y: y), 39.5, spin, 1.15, color, active ? 0.8 : 0.32, 1.2)
+        arc(context, CGPoint(x: x, y: y), 39.5, spin + .pi, 0.6, color, active ? 0.42 : 0.2, 0.8)
+        let selected = Int(t * 0.7) % 4
         for i in 0..<4 {
-            line(context, [nodes[i], nodes[(i + 1) % 4]], palette.ink, 0.8, 0.24)
-            circle(context, nodes[i], 5, color, active && i == selected ? 0.8 : 0.45, width: 1)
-            circle(context, nodes[i], 1.7, color, active && i == selected ? 0.9 : 0.18, fill: true)
+            let lit = active && (i == selected || i == (selected + 1) % 4)
+            let a = nodes[i], b = nodes[(i + 1) % 4]
+            line(context, [a, b], palette.ink, 0.9, 0.24)
+            if lit { glow(context, a, 10, color, 0.2) }
+            circle(context, a, 4.7, color, lit ? 0.95 : 0.4, width: 1.1)
+            circle(context, a, lit ? 2.3 : 1.2, color, lit ? 0.9 : 0.18, fill: true)
+            if active {
+                let u = (t * 0.48 + Double(i) * 0.25).truncatingRemainder(dividingBy: 1)
+                comet(context, { p in CGPoint(x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p) },
+                      u, color, tail: 0.20, radius: 1.25 * sidePower)
+            }
         }
-        if phase.showsAgentCycle {
-            let progress = elapsed * 0.8
-            let index = Int(progress) % 4
-            let u = progress.truncatingRemainder(dividingBy: 1)
-            let a = nodes[index], b = nodes[(index + 1) % 4]
-            comet(context, { p in CGPoint(x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p) },
-                  u, color, tail: 0.35, radius: 1.7)
-        }
+        // Cards gather and scan; these lines are symbolic context, not message content.
         for i in stride(from: 2, through: 0, by: -1) {
-            let size = 18.0
-            let shift = Double(i) * 2
-            let dx = active ? sin(elapsed * 1.4 + Double(i)) * 0.7 : 0
-            let rect = CGRect(x: x - size / 2 + shift + dx, y: y - size / 2 - shift, width: size, height: 23)
-            let path = Path(roundedRect: rect, cornerRadius: 1.8)
-            context.fill(path, with: .color(palette.background))
-            context.stroke(path, with: .color(color.opacity(active ? 0.7 : 0.38)), lineWidth: 0.8)
-            line(context, [CGPoint(x: rect.minX + 2, y: rect.midY), CGPoint(x: rect.maxX - 2, y: rect.midY)],
-                 color, 0.6, active ? 0.5 : 0.15)
+            let index = Double(i)
+            let fan = active ? sin(t * 1.25 + index * 0.7) * 2.4 : sin(t * 0.45 + index) * 0.45
+            var card = context
+            card.translateBy(x: x + index * 2 + fan, y: y - index * 2 + sin(t * 0.8 + index) * 0.55)
+            card.rotate(by: .radians(active ? (index - 1) * 0.055 * sin(t * 0.8) : 0))
+            let shape = Path(roundedRect: CGRect(x: -10, y: -11, width: 19, height: 25), cornerRadius: 3)
+            card.fill(shape, with: .color(palette.background))
+            card.stroke(shape, with: .color(color.opacity(active ? 0.95 : 0.6)), lineWidth: 1)
+            for row in 0..<3 {
+                let fill = active ? 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 2.5 - Double(row) * 0.9 + index)) : 0.65
+                let length = (row == 2 ? 8.0 : 11.0) * fill
+                line(card, [CGPoint(x: -6, y: -5 + Double(row) * 5),
+                            CGPoint(x: -6 + length, y: -5 + Double(row) * 5)], color, 0.9, active ? 0.8 : 0.35)
+            }
+            if active {
+                let scan = -8 + (t * 0.42 + index * 0.2).truncatingRemainder(dividingBy: 1) * 18
+                line(card, [CGPoint(x: -8, y: scan), CGPoint(x: 7, y: scan)], color, 1, 0.32)
+            }
+        }
+        if active {
+            for i in 0..<3 {
+                let u = (t * 0.52 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+                let startX = phase == .receiving || phase == .response ? 27.0 : -27.0
+                let px = x + startX * (1 - u)
+                let py = y + (-24 + Double(i) * 7) * (1 - u) + sin(u * .pi) * 4
+                let tile = Path(roundedRect: CGRect(x: px - 2.5, y: py - 1.8, width: 5, height: 3.6), cornerRadius: 1)
+                context.fill(tile, with: .color(color.opacity(0.25 + 0.65 * u)))
+            }
+            if phase == .tools {
+                let node = nodes[2], u = (t * 0.65).truncatingRemainder(dividingBy: 1)
+                comet(context, { p in CGPoint(x: node.x + (x - node.x) * p, y: node.y + (y + 9 - node.y) * p) },
+                      u, palette.accent, tail: 0.20, radius: 1.6 * sidePower)
+            }
         }
     }
 
     private func model(_ context: GraphicsContext, x: Double, y: Double) {
+        let t = sideTime
         let active = phase.showsModelPrinciple
-        let color = phase == .sending ? palette.warning : palette.accent
-        let pitch = 9.0
-        let depth = 2.6
-        let offset = 17.0
-        let top = y - 40
-        let cycle = elapsed.truncatingRemainder(dividingBy: 4) / 4 * 3
-        glow(context, CGPoint(x: x, y: y), 42, color, active ? 0.19 : 0.025)
+        let color = palette.accent
+        let pulse = 0.5 + 0.5 * sin(t * 1.7)
+        glow(context, CGPoint(x: x, y: y), 44, color, active ? 0.14 + 0.09 * pulse : 0.04 + 0.012 * pulse)
+        var tops = [Double](repeating: 0, count: 3)
         for layer in stride(from: 2, through: 0, by: -1) {
-            let origin = top + Double(layer) * offset
-            let energy = active ? max(0.12, 1 - abs(cycle - Double(layer)) / 1.2) : 0.02
-            let plane = [CGPoint(x: x, y: origin), CGPoint(x: x + pitch * 4.2, y: origin + depth * 4.2),
-                         CGPoint(x: x, y: origin + depth * 8.4), CGPoint(x: x - pitch * 4.2, y: origin + depth * 4.2)]
+            let top = y - 38 + Double(layer) * 16.5 + sin(t * (active ? 1.3 : 0.45) + Double(layer) * 0.8) * (active ? 2.2 : 0.65)
+            tops[layer] = top
+            var grid = context
+            grid.translateBy(x: x, y: top)
+            let plane = [CGPoint(x: 0, y: 0), CGPoint(x: 37, y: 11), CGPoint(x: 0, y: 22), CGPoint(x: -37, y: 11)]
             var path = Path()
             path.addLines(plane)
             path.closeSubpath()
-            context.fill(path, with: .color(palette.background))
-            context.stroke(path, with: .color(color.opacity(0.30 + energy * 0.5)), lineWidth: 0.9)
+            grid.fill(path, with: .color(palette.background))
+            grid.stroke(path, with: .color(color.opacity(active ? 0.65 : 0.35)), lineWidth: 1.1)
+            let wave = (t * 0.72).truncatingRemainder(dividingBy: 3)
+            let layerEnergy = active ? max(0.18, 1 - abs(wave - Double(layer)) / 1.4) : 0.16
             for row in 0..<4 {
                 for col in 0..<4 {
-                    let px = x + Double(col - row) * pitch
-                    let py = origin + 2 + Double(col + row) * depth
-                    let strength = col <= row ? 0.18 + 0.58 * (0.5 + 0.5 * sin(elapsed * 2.6 + Double(row) * 0.9 - Double(col) * 0.7 - Double(layer))) : 0.035
-                    let opacity = active ? strength * (0.38 + energy * 0.6) : 0.14
+                    let px = Double(col - row) * 8.6
+                    let py = 2 + Double(col + row) * 2.5
+                    let attention = col <= row ? 1.0 : 0.2
+                    let energy = active ? (0.16 + 0.68 * (0.5 + 0.5 * sin(t * 3.2 + Double(row) * 0.9 - Double(col) * 0.7 - Double(layer)))) * layerEnergy * attention : 0.15
                     var tile = Path()
-                    tile.addLines([CGPoint(x: px, y: py), CGPoint(x: px + pitch * 0.8, y: py + depth * 0.8),
-                                   CGPoint(x: px, y: py + depth * 1.6), CGPoint(x: px - pitch * 0.8, y: py + depth * 0.8)])
+                    tile.addLines([CGPoint(x: px, y: py), CGPoint(x: px + 6.7, y: py + 2),
+                                   CGPoint(x: px, y: py + 4), CGPoint(x: px - 6.7, y: py + 2)])
                     tile.closeSubpath()
-                    context.fill(tile, with: .color(color.opacity(min(1, opacity * intensity))))
+                    grid.fill(tile, with: .color(color.opacity(min(0.9, energy * sidePower))))
+                    if active && energy > 0.6 { grid.stroke(tile, with: .color(Color.white.opacity(0.55)), lineWidth: 0.7) }
                 }
             }
             if active {
-                let u = (elapsed * 0.65 + Double(layer) * 0.27).truncatingRemainder(dividingBy: 1)
-                comet(context, { p in CGPoint(x: x - pitch * 4.2 + p * pitch * 8.4,
-                                             y: origin + depth * 4.2 + sin(p * .pi) * depth * 4.2) },
-                      u, color, tail: 0.2, radius: 1.1)
+                let u = (t * 0.55 + Double(layer) * 0.21).truncatingRemainder(dividingBy: 1)
+                comet(grid, { p in CGPoint(x: -30 + 60 * p, y: 11 + sin(p * .pi) * 8) },
+                      u, color, tail: 0.2, radius: 1.15 * sidePower)
             }
         }
-        let tokenY = y + 37.0
-        let tokenWidth = 14.0
-        let gap = 19.0
-        let chosen = Int(elapsed * 1.5) % 4
-        for i in 0..<4 {
-            let px = x - gap * 1.5 + Double(i) * gap - tokenWidth / 2
-            let lit = phase == .receiving && i <= chosen
-            let rect = CGRect(x: px, y: tokenY - 4, width: tokenWidth, height: 8)
-            let tile = Path(roundedRect: rect, cornerRadius: 2)
-            context.fill(tile, with: .color(color.opacity(lit ? 0.25 : 0.10)))
-            if lit && i == chosen { context.stroke(tile, with: .color(color.opacity(0.7)), lineWidth: 0.7) }
+        if active {
+            for layer in 0..<2 {
+                for col in 0..<3 {
+                    let u = (t * 0.6 + Double(col) * 0.28 + Double(layer) * 0.18).truncatingRemainder(dividingBy: 1)
+                    let point = CGPoint(x: x + Double(col - 1) * 17,
+                                        y: tops[layer] + 12 + (tops[layer + 1] - tops[layer]) * u)
+                    glow(context, point, 4.5, color, 0.16)
+                    circle(context, point, 1.2, color, 0.85, fill: true)
+                }
+            }
         }
+        let generating = phase == .receiving
+        let chosen = Int(t * 1.5) % 4
+        for i in 0..<4 {
+            let lit = generating && i <= chosen
+            let bounce = generating && i == chosen ? -sin((t * 1.5).truncatingRemainder(dividingBy: 1) * .pi) * 1.8 : 0
+            let px = x - 35 + Double(i) * 19
+            let rect = CGRect(x: px, y: y + 33 + bounce, width: 14, height: 8)
+            let tile = Path(roundedRect: rect, cornerRadius: 2)
+            context.fill(tile, with: .color(color.opacity(lit ? 0.55 : 0.14)))
+            if lit { context.stroke(tile, with: .color(color.opacity(0.55)), lineWidth: 1) }
+            if generating && i == chosen { glow(context, CGPoint(x: px + 7, y: y + 37 + bounce), 9, color, 0.22) }
+        }
+        if generating {
+            let u = (t * 0.8).truncatingRemainder(dividingBy: 1), target = x - 28 + Double(Int(t * 0.8) % 4) * 19
+            comet(context, { p in CGPoint(x: x + (target - x) * p, y: y + 20 + 17 * p - sin(p * .pi) * 3) },
+                  u, color, tail: 0.2, radius: 1.35 * sidePower)
+        }
+    }
+
+    private func arc(_ context: GraphicsContext, _ point: CGPoint, _ radius: Double, _ start: Double,
+                     _ length: Double, _ color: Color, _ opacity: Double, _ width: CGFloat) {
+        var path = Path()
+        path.addArc(center: point, radius: radius, startAngle: .radians(start), endAngle: .radians(start + length), clockwise: false)
+        context.stroke(path, with: .color(color.opacity(opacity)), style: StrokeStyle(lineWidth: width, lineCap: .round))
     }
 
     private func text(_ context: GraphicsContext, _ value: String, _ x: Double, _ y: Double,

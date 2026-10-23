@@ -44,4 +44,6 @@ enum FlowPhase {
     var showsModelPrinciple: Bool { self == .awaiting || self == .receiving }
     var showsAgentCycle: Bool { self == .tools }
     var showsInboundFlow: Bool { self == .receiving || self == .response }
+    var allowsMechanismMotion: Bool { self != .waiting && self != .ended }
+    var showsAgentPrinciple: Bool { [.sending, .receiving, .response, .tools].contains(self) }
 }

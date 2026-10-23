@@ -14,6 +14,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 跟随系统、深色「夜航」、浅色「晨光」、暖纸「午后」四种主题，自动记住选择。
 - 工作核心呼吸、双层光弧旋转与动态信号条；等待时显示琥珀色脉冲，结束时短暂扩散。可关闭动画，并遵循系统「减少动态效果」设置。
 - 能量脉冲收发动画；展开后可看智能体工作闭环与模型分层计算示意，明确区分事件状态和原理动画。
+- 「协作光环」两侧动效：上下文卡片、节点调度、浮动矩阵、层间传递与生成符号；未确认时仅待命微动，等待确认时独立暂停。
 - 中间的「微风发电」陪伴动效：风机、草地与轻云，点击可短暂加风，转速不代表 TPS 或任务进度。
 - 等高对称的三列图形与更大的字号；仅保留事件驱动的收发光流，背景流星可独立开关、调节亮度。
 - 自然极光帷幕、星空与远山背景，默认强度 18%，支持开关、强度和远山设置；极光与流星独立运动。
@@ -26,7 +27,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.2-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.3-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -107,7 +108,7 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/AnimationTempo.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
@@ -120,6 +121,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 - `Sources/MessageFlow.swift` / `Sources/MessageFlowView.swift`：有时效限制的阶段解释与双向通信动画。
 - `Sources/TransferPlayback.swift`：共享的近期通信播放队列，处理采集延迟、去重、过期与启动静音，独立于当前工作阶段。
 - `Sources/MechanismScene.swift`：能量脉冲、吸收涟漪、工作闭环及模型分层计算的原生矢量示意；不读取模型内部信息。
+- `Sources/MechanismMotion.swift`：共享时钟上的每卡片动画位置，独立处理等待、隐藏与恢复，不改变真实通信时序。
 - `Sources/WindMotion.swift` / `Sources/WindGarden.swift`：微风的运动积分、可见视图共用的时钟和原生风机插画，不读取 token 或进度数据。
 - `Sources/MeteorBackground.swift` / `Sources/AuroraBackground.swift`：独立的流星与极光陪伴场景；极光使用量化后的共享时钟控制重绘，支持主题、强度和远山设置。
 - `Sources/AnimationTempo.swift`：按运行任务和去重后的近期活动选择陪伴节奏；忽略启动、重连历史及等待任务，不估计 CPU、TPS 或任务进度。

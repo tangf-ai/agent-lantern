@@ -155,3 +155,37 @@ check(loaded.meteorTime == pausedMeteor, "Resume must preserve accumulated anima
 for i in 1...240 { loaded.advance(at: 300 + Double(i) / 30, mood: .waiting, tempo: .intense) }
 check(loaded.tempoRate < 1.003 && loaded.speed < 0.35, "Waiting must override a previous busy level and ease down")
 print("Adaptive tempo: startup/reconnect silence, deduplication, waiting exclusion, bursts, decay, bounded rates, fixed cadence and continuous pause/resume: PASS")
+
+check(FlowPhase.unknown.allowsMechanismMotion && !FlowPhase.unknown.showsModelPrinciple,
+      "An unconfirmed running task may show standby motion but not model computation")
+check(!FlowPhase.waiting.allowsMechanismMotion && !FlowPhase.ended.allowsMechanismMotion,
+      "Waiting and ended cards must freeze both side mechanisms")
+check(FlowPhase.response.showsAgentPrinciple && !FlowPhase.response.showsModelPrinciple,
+      "A completed response may be organized, but must not simulate more model generation")
+var pose = MechanismMotion()
+check(pose.time(at: 100) == 0, "An unconfigured scene must remain static")
+pose.configure(source: 100, enabled: true)
+check(pose.time(at: 102) == 2, "Side poses should follow the shared integrated clock")
+pose.configure(source: 102, enabled: false)
+check(pose.time(at: 202) == 2, "A waiting task must freeze even when other tasks keep the shared clock moving")
+pose.configure(source: 202, enabled: true)
+check(pose.time(at: 202) == 2 && pose.time(at: 203) == 3,
+      "Resuming must preserve the card pose without replaying time spent waiting")
+pose.configure(source: 203, enabled: true)
+check(pose.time(at: 204) == 4, "Repeated configuration must not restart the cycle")
+pose.configure(source: .nan, enabled: false)
+check(pose.time(at: 204) == 4, "Invalid clock input must not corrupt the pose")
+var sideNormal = WindMotion(), sideBusy = WindMotion()
+sideNormal.resume(at: 0); sideBusy.resume(at: 0)
+for i in 1...240 {
+    sideNormal.advance(at: Double(i) / 30, mood: .working)
+    sideBusy.advance(at: Double(i) / 30, mood: .working, tempo: .intense)
+}
+check(sideBusy.mechanismTime > sideNormal.mechanismTime * 1.3 && sideBusy.mechanismTime <= sideNormal.mechanismTime * 1.6,
+      "Side mechanisms must accelerate smoothly within their own ceiling")
+sideBusy.pause(); let frozenSide = sideBusy.mechanismTime
+sideBusy.advance(at: 500, mood: .working, tempo: .intense)
+check(sideBusy.mechanismTime == frozenSide, "Hidden/reduced-motion scenes must not advance")
+sideBusy.resume(at: 600); sideBusy.advance(at: 600, mood: .working, tempo: .intense)
+check(sideBusy.mechanismTime == frozenSide, "Resuming must preserve the integrated side clock")
+print("Side mechanisms: observed role guards, standby, per-task waiting, pause/resume, repeated configuration and bounded adaptive motion: PASS")

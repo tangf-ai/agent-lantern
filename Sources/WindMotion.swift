@@ -18,9 +18,11 @@ struct WindMotion {
     private(set) var breeze = 0.0
     private(set) var meteorTime = 0.0
     private(set) var auroraTime = 0.0
+    private(set) var mechanismTime = 0.0
     private(set) var tempoRate = 1.0
     private var meteorRate = 1.0
     private var auroraRate = 1.0
+    private var mechanismRate = 1.0
     private(set) var gustAge: Double? = nil
     private var last: Double? = nil
     private var gustStarted: Double? = nil
@@ -49,6 +51,7 @@ struct WindMotion {
         tempoRate += (level.wind - tempoRate) * ease
         meteorRate += (level.meteor - meteorRate) * ease
         auroraRate += (level.aurora - auroraRate) * ease
+        mechanismRate += (level.mechanism - mechanismRate) * ease
         let target = mood.speed * tempoRate + gust
         speed += (target - speed) * (1 - exp(-dt * 2))
         angle = (angle + speed * dt).truncatingRemainder(dividingBy: .pi * 2)
@@ -57,5 +60,6 @@ struct WindMotion {
         // Integrate separate clocks: changing speed cannot teleport a meteor or curtain.
         meteorTime += step * meteorRate
         auroraTime += step * auroraRate
+        mechanismTime += step * mechanismRate * 1.2
     }
 }
