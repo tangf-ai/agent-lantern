@@ -651,6 +651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for name in [NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.screensDidWakeNotification] {
             workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.model.sessionActive = true
+                self?.refresh()
             })
         }
         panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 334, height: 149),
@@ -670,8 +671,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let x = UserDefaults.standard.object(forKey: "panelX") as? Double ?? screen.maxX - 360
         let y = UserDefaults.standard.object(forKey: "panelTop") as? Double ?? screen.maxY - 65
-        panel.setFrameTopLeftPoint(NSPoint(x: min(max(x, screen.minX + 10), screen.maxX - 344),
-                                           y: min(max(y, screen.minY + 160), screen.maxY - 10)))
+        let savedFrame = NSRect(x: x, y: y - 149, width: 334, height: 149)
+        panel.setFrame(visiblePanelFrame(savedFrame), display: false)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "智能体工作灯")
         item.button?.target = self
@@ -716,15 +717,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh()
         return true
     }
+    func applicationDidChangeScreenParameters(_ notification: Notification) {
+        refresh()
+    }
+    private func visiblePanelFrame(_ frame: NSRect) -> NSRect {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return frame }
+        let fallback = NSScreen.main.flatMap { screens.firstIndex(of: $0) } ?? 0
+        return WindowPlacement.visibleFrame(frame, screens: screens.map(\.visibleFrame), fallbackIndex: fallback)
+    }
     func refresh() {
         guard panel != nil else { return }
         hosting.layoutSubtreeIfNeeded()
         let height = hosting.fittingSize.height
         let current = panel.frame
-        let screen = panel.screen?.visibleFrame ?? NSScreen.main!.visibleFrame
-        var rect = NSRect(x: current.minX, y: current.maxY - height, width: 334, height: height)
-        rect.origin.x = min(max(rect.origin.x, screen.minX + 8), screen.maxX - rect.width - 8)
-        rect.origin.y = max(rect.origin.y, screen.minY + 8)
+        let proposed = NSRect(x: current.minX, y: current.maxY - height, width: 334, height: height)
+        let rect = visiblePanelFrame(proposed)
         changingFrame = true
         panel.setFrame(rect, display: true, animate: false)
         changingFrame = false
@@ -744,6 +752,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add(model.demo ? "预览模式（示例任务）" : model.title, nil).isEnabled = false
         menu.addItem(.separator())
         add("显示浮窗", #selector(showPanel))
+        add("移回主屏幕", #selector(movePanelToPrimaryScreen))
         add("空闲时也显示", #selector(toggleIdle)).state = model.showIdle ? .on : .off
         add(model.paused ? "恢复显示" : "暂停显示", #selector(togglePaused))
         add(model.demo ? "退出预览" : "预览浮窗（示例）", #selector(togglePreview))
@@ -816,6 +825,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     @objc func showPanel() { model.manualVisible = true; model.paused = false; refresh() }
+    @objc func movePanelToPrimaryScreen() {
+        guard panel != nil, let screen = NSScreen.screens.first?.visibleFrame else { return }
+        model.manualVisible = true
+        model.paused = false
+        let frame = NSRect(x: screen.maxX - panel.frame.width - 20, y: screen.maxY - panel.frame.height - 20,
+                           width: panel.frame.width, height: panel.frame.height)
+        changingFrame = true
+        panel.setFrame(visiblePanelFrame(frame), display: true)
+        changingFrame = false
+        UserDefaults.standard.set(panel.frame.minX, forKey: "panelX")
+        UserDefaults.standard.set(panel.frame.maxY, forKey: "panelTop")
+        refresh()
+    }
     @objc func toggleIdle() {
         model.showIdle.toggle()
         model.manualVisible = false

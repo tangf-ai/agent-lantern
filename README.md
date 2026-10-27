@@ -10,6 +10,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 - 有任务时出现，全部结束后停留 8 秒收起；也可以一直显示。
 - 可拖动、不抢键盘焦点，点击展开各个任务和接入状态。
+- 多屏变更或唤醒时自动修正屏幕外的位置，也可从菜单选择「移回主屏幕」。
 - 本地中文文案随机轮播，默认 20 秒，支持自行编辑句库。
 - 跟随系统、深色「夜航」、浅色「晨光」、暖纸「午后」四种主题，自动记住选择。
 - 工作核心呼吸、双层光弧旋转与动态信号条；等待时显示琥珀色脉冲，结束时短暂扩散。可关闭动画，并遵循系统「减少动态效果」设置。
@@ -27,7 +28,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.4-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.5-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -108,7 +109,7 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
@@ -123,6 +124,7 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 - `Sources/MechanismScene.swift`：能量脉冲、吸收涟漪、工作闭环及模型分层计算的原生矢量示意；不读取模型内部信息。
 - `Sources/MechanismMotion.swift`：共享时钟上的每卡片动画位置，独立处理等待、隐藏与恢复，不改变真实通信时序。
 - `Sources/WindMotion.swift` / `Sources/WindGarden.swift`：微风与大风车的运动积分、共享可见时钟、整窗背景风机和轻风交互，不读取 token 或进度数据。
+- `Sources/WindowPlacement.swift`：根据当前屏幕的可视区域恢复浮窗，保留有效的副屏位置。
 - `Sources/MeteorBackground.swift` / `Sources/AuroraBackground.swift`：独立的流星与极光陪伴场景；极光使用量化后的共享时钟控制重绘，支持主题、强度和远山设置。
 - `Sources/AnimationTempo.swift`：按运行任务和去重后的近期活动选择陪伴节奏；忽略启动、重连历史及等待任务，不估计 CPU、TPS 或任务进度。
 - `Sources/WorkingLight.swift`：原生 Canvas 工作核心和任务信号动画；隐藏、休眠和减少动态效果时停止连续刷新。

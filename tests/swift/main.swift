@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 func event(_ id: String, _ at: Double) -> TaskCompletion {
     TaskCompletion(id: id, agent: "Codex", label: "example", at: at)
@@ -209,3 +210,26 @@ backdrop.advance(at: 300, mood: .working)
 backdrop.resume(at: 400); backdrop.advance(at: 400, mood: .working)
 check(backdrop.backdropAngle == backgroundPause, "Background hide/reduce-motion and resume must preserve its angle")
 print("Background rotor: gentle speed, continuous independent wraps, pause and no resume fast-forward: PASS")
+
+let primaryScreen = CGRect(x: 0, y: 81, width: 1920, height: 969)
+let secondaryScreen = CGRect(x: -1080, y: -401, width: 1080, height: 1920)
+let savedSecondary = CGRect(x: -389, y: 1340, width: 334, height: 149)
+check(WindowPlacement.visibleFrame(savedSecondary, screens: [primaryScreen, secondaryScreen], fallbackIndex: 0) == savedSecondary,
+      "A saved position on a connected secondary screen must remain unchanged")
+let lostAbove = CGRect(x: 8, y: 2147, width: 334, height: 377)
+let restored = WindowPlacement.visibleFrame(lostAbove, screens: [primaryScreen, secondaryScreen], fallbackIndex: 0)
+check(restored.maxY == primaryScreen.maxY - 8 && restored.minX == 8,
+      "An off-screen window above all displays must return inside the primary screen")
+let disconnected = WindowPlacement.visibleFrame(savedSecondary, screens: [primaryScreen], fallbackIndex: 0)
+check(disconnected.minX == 8 && disconnected.maxY == primaryScreen.maxY - 8,
+      "Disconnecting a secondary display must recover both horizontal and vertical position")
+let partial = CGRect(x: 1900, y: 900, width: 334, height: 377)
+let clamped = WindowPlacement.visibleFrame(partial, screens: [primaryScreen], fallbackIndex: 0)
+check(clamped.maxX == primaryScreen.maxX - 8 && clamped.maxY == primaryScreen.maxY - 8,
+      "A partially visible window must fit within all screen edges")
+let tooTall = WindowPlacement.visibleFrame(CGRect(x: 100, y: 100, width: 334, height: 1200),
+                                           screens: [primaryScreen], fallbackIndex: 0)
+check(tooTall.maxY == primaryScreen.maxY - 8, "An oversized window must keep its top controls visible")
+check(WindowPlacement.visibleFrame(lostAbove, screens: [], fallbackIndex: 0) == lostAbove,
+      "A temporary absence of screens must not invent a new position")
+print("Window placement: off-screen recovery, secondary display, disconnected display, edge clamping and tall panel: PASS")
