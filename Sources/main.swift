@@ -609,6 +609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var driftTimer: Timer?
     var environmentTimer: Timer?
     var driftEnabled = true
+    var driftArea: DriftArea = .edges
     var detailOpen = false
     var fullScreenSuppressed = false
     var explicitFullScreenDetails = false
@@ -631,6 +632,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model = Model(preview: args.contains("--preview"))
         driftEnabled = model.preview ? args.contains("--preview-drift") :
             (UserDefaults.standard.object(forKey: "driftEnabled") as? Bool ?? true)
+        if model.preview {
+            if let index = args.firstIndex(of: "--preview-drift-area"), args.indices.contains(index + 1),
+               let area = DriftArea(rawValue: args[index + 1]) { driftArea = area }
+        } else {
+            driftArea = UserDefaults.standard.string(forKey: "driftArea").flatMap(DriftArea.init(rawValue:)) ?? .edges
+        }
         systemAppearanceChanged()
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(systemAppearanceChanged),
             name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil)
@@ -824,7 +831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         driftPanel.contentView = driftHosting
         if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(panel.frame.origin) }) ?? NSScreen.main {
             driftScreenID = screenID(screen)
-            driftMotion = DriftMotion(screen: screen.visibleFrame)
+            driftMotion = DriftMotion(screen: screen.visibleFrame, area: driftArea)
         }
         completionPanel = FloatingPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                         backing: .buffered, defer: false)
@@ -954,6 +961,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add("查看任务详情", #selector(showPanel))
         if driftEnabled { add("收起详情，继续漂浮", #selector(resumeDrift)) }
         add("桌面漂浮", #selector(toggleDrift)).state = driftEnabled ? .on : .off
+        let areaParent = add("漂浮范围", nil)
+        let areas = NSMenu()
+        for (index, area) in DriftArea.allCases.enumerated() {
+            let entry = NSMenuItem(title: area.title, action: #selector(changeDriftArea(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.tag = index
+            entry.state = driftArea == area ? .on : .off
+            areas.addItem(entry)
+        }
+        areaParent.submenu = areas
         add("移回主屏幕", #selector(movePanelToPrimaryScreen))
         add("空闲时也显示", #selector(toggleIdle)).state = model.showIdle ? .on : .off
         add(model.paused ? "恢复显示" : "暂停显示", #selector(togglePaused))
@@ -1063,6 +1080,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         driftMotion?.pause()
         refresh()
     }
+    @objc func changeDriftArea(_ entry: NSMenuItem) {
+        guard DriftArea.allCases.indices.contains(entry.tag) else { return }
+        driftArea = DriftArea.allCases[entry.tag]
+        if !model.preview { UserDefaults.standard.set(driftArea.rawValue, forKey: "driftArea") }
+        if let screen = currentDriftScreen {
+            driftMotion?.setArea(driftArea, screen: screen.visibleFrame)
+        }
+        refresh()
+    }
     @objc func movePanelToPrimaryScreen() {
         guard panel != nil, let screen = NSScreen.screens.first?.visibleFrame else { return }
         model.manualVisible = true
@@ -1146,6 +1172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var checks: [String: Bool] = [:]
         let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+        checks["requested_drift_area"] = driftMotion?.route.area == driftArea
+        if driftArea == .top, let motion = driftMotion {
+            checks["top_route_position"] = motion.center.y == motion.route.bounds.maxY
+        }
         checks["drift_size_52"] = driftPanel.frame.size == CGSize(width: 52, height: 52)
         checks["click_through"] = driftPanel.ignoresMouseEvents && completionPanel.ignoresMouseEvents
         checks["cannot_take_focus"] = !driftPanel.canBecomeKey && !panel.canBecomeKey
@@ -1191,6 +1221,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         checks["fixed_mode_available"] = panel.isVisible && !driftPanel.isVisible && driftTimer == nil
         toggleDrift()
         checks["drift_mode_restored"] = driftPanel.isVisible && !panel.isVisible
+        let originalArea = driftArea
+        for (index, area) in DriftArea.allCases.enumerated() {
+            let entry = NSMenuItem()
+            entry.tag = index
+            changeDriftArea(entry)
+            rebuildMenu()
+            let areaMenu = menu.items.first(where: { $0.title == "漂浮范围" })?.submenu
+            checks["area_menu_\(area.rawValue)"] = areaMenu?.items[index].state == .on &&
+                areaMenu?.items.filter({ $0.state == .on }).count == 1
+            checks["area_switch_\(area.rawValue)"] = driftMotion?.route.area == area &&
+                currentDriftScreen?.visibleFrame.contains(driftPanel.frame) == true
+        }
+        let restoreArea = NSMenuItem()
+        restoreArea.tag = DriftArea.allCases.firstIndex(of: originalArea) ?? 0
+        changeDriftArea(restoreArea)
         checks["foreground_unchanged"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
         model.tasks = []; model.finished = true; refresh()
         checks["completion_bubble"] = completionPanel.isVisible && completionPanel.ignoresMouseEvents

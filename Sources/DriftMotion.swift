@@ -1,13 +1,27 @@
 import Foundation
 import CoreGraphics
 
-/// A perimeter in Cocoa screen coordinates; the Dock/menu bar are excluded by visibleFrame.
+enum DriftArea: String, CaseIterable {
+    case edges
+    case top
+
+    var title: String {
+        switch self {
+        case .edges: return "屏幕四周"
+        case .top: return "屏幕上部"
+        }
+    }
+}
+
+/// Routes use Cocoa screen coordinates; the Dock/menu bar are excluded by visibleFrame.
 struct DriftRoute {
     static let lightSize: CGFloat = 52
     let bounds: CGRect
-    var perimeter: CGFloat { max(1, (bounds.width + bounds.height) * 2) }
+    let area: DriftArea
+    var perimeter: CGFloat { max(1, (area == .top ? bounds.width : bounds.width + bounds.height) * 2) }
 
-    init(screen: CGRect) {
+    init(screen: CGRect, area: DriftArea = .edges) {
+        self.area = area
         let inset = Self.lightSize / 2 + 18
         let dx = min(inset, max(0, screen.width / 2))
         let dy = min(inset, max(0, screen.height / 2))
@@ -17,6 +31,11 @@ struct DriftRoute {
     func point(at distance: CGFloat) -> CGPoint {
         var d = (distance.truncatingRemainder(dividingBy: perimeter) + perimeter)
             .truncatingRemainder(dividingBy: perimeter)
+        if area == .top {
+            // Retrace the top edge so wrapping never teleports to the opposite side.
+            let x = d <= bounds.width ? bounds.maxX - d : bounds.minX + d - bounds.width
+            return CGPoint(x: min(max(x, bounds.minX), bounds.maxX), y: bounds.maxY)
+        }
         if d <= bounds.height { return CGPoint(x: bounds.maxX, y: bounds.maxY - d) }
         d -= bounds.height
         if d <= bounds.width { return CGPoint(x: bounds.maxX - d, y: bounds.minY) }
@@ -29,6 +48,7 @@ struct DriftRoute {
     func nearestDistance(to point: CGPoint) -> CGFloat {
         let x = min(max(point.x, bounds.minX), bounds.maxX)
         let y = min(max(point.y, bounds.minY), bounds.maxY)
+        if area == .top { return bounds.maxX - x }
         let candidates = [bounds.maxY - y, bounds.height + bounds.maxX - x,
                           bounds.height + bounds.width + y - bounds.minY,
                           bounds.height * 2 + bounds.width + x - bounds.minX]
@@ -48,7 +68,7 @@ struct DriftMotion {
     private var cooldownUntil: Double = 0
     private var floatTime: Double = 0
 
-    init(screen: CGRect) { route = DriftRoute(screen: screen) }
+    init(screen: CGRect, area: DriftArea = .edges) { route = DriftRoute(screen: screen, area: area) }
 
     var center: CGPoint { route.point(at: distance) }
     var frame: CGRect {
@@ -58,10 +78,18 @@ struct DriftMotion {
     }
 
     mutating func setScreen(_ screen: CGRect) {
-        let next = DriftRoute(screen: screen)
+        let next = DriftRoute(screen: screen, area: route.area)
         guard next.bounds != route.bounds else { return }
         let previous = center
         route = next
+        distance = route.nearestDistance(to: previous)
+        pause()
+    }
+
+    mutating func setArea(_ area: DriftArea, screen: CGRect) {
+        guard area != route.area else { setScreen(screen); return }
+        let previous = center
+        route = DriftRoute(screen: screen, area: area)
         distance = route.nearestDistance(to: previous)
         pause()
     }

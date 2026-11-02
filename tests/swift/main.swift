@@ -275,6 +275,58 @@ preservedDrift.park(near: CGPoint(x: -500, y: 1400))
 let beforeSameScreen = preservedDrift.frame
 preservedDrift.setScreen(secondaryScreen)
 check(preservedDrift.frame == beforeSameScreen, "An unchanged secondary screen must preserve the drift position")
+
+let topRoute = DriftRoute(screen: driftScreen, area: .top)
+let topWidth = topRoute.bounds.width
+check(topRoute.point(at: 0) == CGPoint(x: topRoute.bounds.maxX, y: topRoute.bounds.maxY),
+      "Top drift must start below the menu bar at the right edge")
+check(topRoute.point(at: topWidth) == CGPoint(x: topRoute.bounds.minX, y: topRoute.bounds.maxY),
+      "Top drift must reach the left edge before turning around")
+check(abs(topRoute.point(at: topWidth - 0.1).x - topRoute.point(at: topWidth + 0.1).x) < 0.001 &&
+      abs(topRoute.point(at: topRoute.perimeter - 0.1).x - topRoute.point(at: topRoute.perimeter + 0.1).x) < 0.001,
+      "Both ends of the top route must turn continuously, including the wrap")
+for screen in [driftScreen, secondaryScreen, CGRect(x: 100, y: -50, width: 320, height: 240)] {
+    var moving = DriftMotion(screen: screen, area: .top)
+    var previous = moving.center
+    for index in 0...25000 {
+        let mouse = index % 400 < 50 ? moving.center : nil
+        moving.advance(at: Double(index) / 30, mouse: mouse, working: true, enabled: true)
+        check(screen.contains(moving.frame), "Top drift and cursor avoidance must remain inside the visible screen")
+        check(moving.center.y == moving.route.bounds.maxY, "Top drift must never descend along the side edges")
+        check(hypot(moving.center.x - previous.x, moving.center.y - previous.y) <= 4.501,
+              "Cruising, cursor avoidance and endpoint turns must not jump")
+        previous = moving.center
+    }
+    let beforeUpdate = moving.frame
+    moving.setScreen(screen)
+    check(moving.frame == beforeUpdate, "An unchanged screen must preserve the top drift position")
+    moving.setScreen(driftScreen)
+    check(moving.route.area == .top && driftScreen.contains(moving.frame),
+          "Display recovery must preserve the top area selection")
+}
+var topDrift = DriftMotion(screen: driftScreen, area: .top)
+topDrift.park(near: CGPoint(x: driftScreen.midX, y: driftScreen.minY))
+check(topDrift.center.x == driftScreen.midX && topDrift.center.y == topDrift.route.bounds.maxY,
+      "Parking in top mode must project onto the top edge")
+let topMouse = topDrift.center
+for i in 0...90 { topDrift.advance(at: Double(i) / 30, mouse: topMouse, working: false, enabled: true) }
+check(abs(topDrift.center.x - topMouse.x) > 105, "A waiting top light must avoid the nearby cursor horizontally")
+let topPausedFrame = topDrift.frame
+for i in 0...30 { topDrift.advance(at: 4 + Double(i) / 30, mouse: topDrift.center, working: true, enabled: false) }
+check(topDrift.frame == topPausedFrame, "Reduced motion must keep the top light still")
+topDrift.pause()
+topDrift.advance(at: 10000, mouse: nil, working: true, enabled: true)
+check(topDrift.frame == topPausedFrame, "Resuming top drift must not fast-forward")
+var changedArea = DriftMotion(screen: driftScreen)
+changedArea.park(near: CGPoint(x: driftScreen.midX, y: driftScreen.minY))
+let oldX = changedArea.center.x
+changedArea.setArea(.top, screen: driftScreen)
+check(changedArea.center.x == oldX && changedArea.center.y == changedArea.route.bounds.maxY,
+      "Switching to the top must preserve the horizontal position")
+let topPosition = changedArea.center
+changedArea.setArea(.edges, screen: driftScreen)
+check(changedArea.center == topPosition, "Returning to all edges must preserve the current top position")
+print("Top drift: continuous turns, cursor escape, upper edge confinement, reduced motion, resume, area changes and display recovery: PASS")
 check(DriftScreenPolicy.isFullScreen(window: driftScreen, screen: driftScreen), "Exact full-screen bounds must be detected")
 check(!DriftScreenPolicy.isFullScreen(window: driftScreen.insetBy(dx: 0, dy: 24), screen: driftScreen),
       "A maximized ordinary window with system margins must not suppress the light")
