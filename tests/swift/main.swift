@@ -233,3 +233,51 @@ check(tooTall.maxY == primaryScreen.maxY - 8, "An oversized window must keep its
 check(WindowPlacement.visibleFrame(lostAbove, screens: [], fallbackIndex: 0) == lostAbove,
       "A temporary absence of screens must not invent a new position")
 print("Window placement: off-screen recovery, secondary display, disconnected display, edge clamping and tall panel: PASS")
+
+let driftScreen = CGRect(x: 0, y: 80, width: 1440, height: 800)
+var drift = DriftMotion(screen: driftScreen)
+let initialDrift = drift.center
+drift.advance(at: 100, mouse: nil, working: true, enabled: true)
+check(drift.center == initialDrift, "The first tick must not jump")
+for i in 1...300 { drift.advance(at: 100 + Double(i) / 30, mouse: nil, working: true, enabled: true) }
+check(abs(drift.distance - 60) < 0.001, "The light must cruise at six points per second")
+let beforePark = drift.center
+for i in 1...60 { drift.advance(at: 110 + Double(i) / 30, mouse: nil, working: false, enabled: true) }
+check(drift.center == beforePark, "Waiting and idle lights must stop cruising")
+let mouseOnLight = drift.center
+for i in 1...90 { drift.advance(at: 112 + Double(i) / 30, mouse: mouseOnLight, working: false, enabled: true) }
+check(hypot(drift.center.x - mouseOnLight.x, drift.center.y - mouseOnLight.y) > 105,
+      "A waiting light must also escape a stationary nearby mouse")
+let reducedPosition = drift.frame
+for i in 1...30 { drift.advance(at: 115 + Double(i) / 30, mouse: drift.center, working: true, enabled: false) }
+check(drift.frame == reducedPosition, "Disabled and reduced motion must keep the light stationary, even near the cursor")
+drift.pause()
+let pausedPosition = drift.frame
+drift.advance(at: 10000, mouse: nil, working: true, enabled: true)
+check(drift.frame == pausedPosition, "Resume after hidden/sleep/detail inspection must not fast-forward")
+let beforeDelayedTick = drift.center
+drift.advance(at: 20000, mouse: nil, working: true, enabled: true)
+check(hypot(drift.center.x - beforeDelayedTick.x, drift.center.y - beforeDelayedTick.y) < 1,
+      "A delayed timer must bound its movement instead of jumping across the screen")
+
+for screen in [driftScreen, secondaryScreen, CGRect(x: 100, y: -50, width: 320, height: 240)] {
+    var moving = DriftMotion(screen: screen)
+    for index in 0...25000 {
+        let mouse = index % 400 < 50 ? moving.center : nil
+        moving.advance(at: Double(index) / 30, mouse: mouse, working: true, enabled: true)
+        check(screen.contains(moving.frame), "All corners, wraps and avoidance paths must keep the entire light inside its screen")
+    }
+    moving.setScreen(driftScreen)
+    check(driftScreen.contains(moving.frame), "Disconnecting a screen must recover the light inside a remaining screen")
+}
+var preservedDrift = DriftMotion(screen: secondaryScreen)
+preservedDrift.park(near: CGPoint(x: -500, y: 1400))
+let beforeSameScreen = preservedDrift.frame
+preservedDrift.setScreen(secondaryScreen)
+check(preservedDrift.frame == beforeSameScreen, "An unchanged secondary screen must preserve the drift position")
+check(DriftScreenPolicy.isFullScreen(window: driftScreen, screen: driftScreen), "Exact full-screen bounds must be detected")
+check(!DriftScreenPolicy.isFullScreen(window: driftScreen.insetBy(dx: 0, dy: 24), screen: driftScreen),
+      "A maximized ordinary window with system margins must not suppress the light")
+check(!DriftScreenPolicy.isFullScreen(window: secondaryScreen, screen: driftScreen),
+      "Window bounds from another display must not accidentally match")
+print("Desktop drift: gentle speed, waiting/idle, cursor escape, reduced motion, resume, delayed ticks, full perimeter, multi-screen recovery and full-screen bounds: PASS")

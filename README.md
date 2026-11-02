@@ -4,12 +4,22 @@
 
 Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi、Hermes、DeepSeek Harness 的任务状态，轮播本地趣味文案，并在已接入任务结束时轻声提醒。
 
-![微风发电与双向通信预览，图中为示例任务](docs/preview-wind-light.png)
+默认以 52 点「桌面游光」在屏幕边缘缓慢漂浮，点击穿透，鼠标靠近时让开。点击菜单栏小灯查看完整风车详情，再次点击返回漂浮；右键菜单栏打开设置，关闭「桌面漂浮」可恢复固定浮窗。
+
+常驻游光（示例状态）：
+
+![52 点桌面游光，图中为示例状态](docs/preview-drift-light.png)
+
+按需展开的风车详情（示例任务）：
+
+![风车详情与双向通信预览，图中为示例任务](docs/preview-detail-light.png)
 
 ## 功能
 
 - 有任务时出现，全部结束后停留 8 秒收起；也可以一直显示。
-- 可拖动、不抢键盘焦点，点击展开各个任务和接入状态。
+- 桌面游光沿屏幕可用区域边缘慢游，避开菜单栏与 Dock；等待确认时停靠，全屏应用前台时隐藏，减少动态效果时静止。
+- 详情面板可拖动、不抢键盘焦点，点击状态行展开各个任务和接入状态。
+- 详情面板收起任务列表时宽 278 点；展开后恢复 334 点宽，查看完整任务及原理说明。
 - 多屏变更或唤醒时自动修正屏幕外的位置，也可从菜单选择「移回主屏幕」。
 - 本地中文文案随机轮播，默认 20 秒，支持自行编辑句库。
 - 跟随系统、深色「夜航」、浅色「晨光」、暖纸「午后」四种主题，自动记住选择。
@@ -28,7 +38,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.9.5-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。菜单栏星光图标及浮窗右上角「…」可以打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.10.0-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -109,11 +119,18 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift Sources/DriftMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
 GitHub Actions 会执行上述检查、构建应用并验证本机签名。
+
+在有图形会话的 Mac 上，还可使用示例任务检查漂浮与详情的原生窗口状态；不会启动采集器或调用模型。结果及预览图写入指定目录：
+
+```sh
+mkdir -p build.noindex/drift-check
+build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-drift "$PWD/build.noindex/drift-check/result.json"
+```
 
 ## 源码
 
@@ -125,6 +142,8 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 - `Sources/MechanismMotion.swift`：共享时钟上的每卡片动画位置，独立处理等待、隐藏与恢复，不改变真实通信时序。
 - `Sources/WindMotion.swift` / `Sources/WindGarden.swift`：微风与大风车的运动积分、共享可见时钟、整窗背景风机和轻风交互，不读取 token 或进度数据。
 - `Sources/WindowPlacement.swift`：根据当前屏幕的可视区域恢复浮窗，保留有效的副屏位置。
+- `Sources/DriftMotion.swift`：沿屏幕边缘慢游、鼠标避让、暂停恢复及多屏位置恢复。
+- `Sources/DriftLightView.swift`：52 点游光、任务数和完成提示。
 - `Sources/MeteorBackground.swift` / `Sources/AuroraBackground.swift`：独立的流星与极光陪伴场景；极光使用量化后的共享时钟控制重绘，支持主题、强度和远山设置。
 - `Sources/AnimationTempo.swift`：按运行任务和去重后的近期活动选择陪伴节奏；忽略启动、重连历史及等待任务，不估计 CPU、TPS 或任务进度。
 - `Sources/WorkingLight.swift`：原生 Canvas 工作核心和任务信号动画；隐藏、休眠和减少动态效果时停止连续刷新。

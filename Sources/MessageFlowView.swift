@@ -21,6 +21,7 @@ struct MessageFlowView: View {
     }
 
     private var canAnimate: Bool { animationsEnabled && !reduceMotion && visible }
+    private var sceneScale: CGFloat { detailed ? 1 : 0.75 }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1, paused: !canAnimate)) { _ in
@@ -29,14 +30,14 @@ struct MessageFlowView: View {
             let pulse = activePulse(now: now, phase: phase)
             let moving = canAnimate && (phase.moving || pulse != nil)
             let sideMoving = canAnimate && phase.allowsMechanismMotion
-            VStack(spacing: 5) {
+            VStack(spacing: detailed ? 5 : 3) {
                 HStack(spacing: 0) {
                     Text(detailed ? "工作闭环示意" : task.agent).font(.system(size: 13, weight: .semibold))
                         .frame(maxWidth: .infinity)
                     Text(phase.title).font(.system(size: 12))
                         .foregroundStyle(phase == .waiting ? palette.warning : palette.text(0.55))
                         .frame(maxWidth: .infinity)
-                    Text(detailed ? "模型内部示意" : "大模型").font(.system(size: 13, weight: .medium))
+                    Text(detailed ? "模型内部示意" : "模型示意").font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity)
                 }.foregroundStyle(palette.text(0.85)).lineLimit(1).minimumScaleFactor(0.9)
                     .shadow(color: palette.background, radius: 3)
@@ -50,14 +51,21 @@ struct MessageFlowView: View {
                                        transferAge: transfer.map { moving ? max(0, wall - $0.began) : $0.duration * 0.57 },
                                        sideElapsed: mechanismMotion.time(at: windClock.motion.mechanismTime))
                     ZStack {
-                        Canvas { context, size in scene.draw(context, size: size) }
+                        Canvas { context, size in
+                            context.scaleBy(x: sceneScale, y: sceneScale)
+                            scene.draw(context, size: CGSize(width: size.width / sceneScale, height: size.height / sceneScale))
+                        }
                         GeometryReader { geometry in
                             WindGustButton(clock: windClock, side: min(96, geometry.size.width / 3 - 1))
-                                .position(x: geometry.size.width / 2, y: 56)
+                                .scaleEffect(sceneScale)
+                                .position(x: geometry.size.width / 2, y: 56 * sceneScale)
                         }
                         // Traffic stays above the window's background rotor and
                         // never intercepts the center's breeze interaction.
-                        Canvas { context, size in scene.draw(context, size: size, layer: .transfers) }
+                        Canvas { context, size in
+                            context.scaleBy(x: sceneScale, y: sceneScale)
+                            scene.draw(context, size: CGSize(width: size.width / sceneScale, height: size.height / sceneScale), layer: .transfers)
+                        }
                             .allowsHitTesting(false)
                     }
                 }
@@ -66,22 +74,24 @@ struct MessageFlowView: View {
                     mechanismMotion.configure(source: windClock.motion.mechanismTime, enabled: enabled)
                 }
                 .onDisappear { mechanismMotion.configure(source: windClock.motion.mechanismTime, enabled: false) }
-                .frame(height: detailed ? 144 : 112)
-                Text(pulse?.title ?? mechanismLabel(phase))
-                    .font(.system(size: 12)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.65))
-                    .shadow(color: palette.background, radius: 3)
-                    .frame(height: 18).lineLimit(1).minimumScaleFactor(0.9)
-                Text("两侧为原理示意 · 非模型内部遥测")
-                    .font(.system(size: 12)).foregroundStyle(palette.text(0.60))
-                    .shadow(color: palette.background, radius: 3)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .frame(height: detailed ? 144 : 84)
+                if detailed {
+                    Text(pulse?.title ?? mechanismLabel(phase))
+                        .font(.system(size: 12)).foregroundStyle(pulse?.kind == "response" ? palette.accent : palette.text(0.65))
+                        .shadow(color: palette.background, radius: 3)
+                        .frame(height: 18).lineLimit(1).minimumScaleFactor(0.9)
+                    Text("两侧为原理示意 · 非模型内部遥测")
+                        .font(.system(size: 12)).foregroundStyle(palette.text(0.60))
+                        .shadow(color: palette.background, radius: 3)
+                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                }
                 if !detailed {
                     HStack(spacing: 4) {
                         Circle().fill(palette.accent.opacity(0.6)).frame(width: 3, height: 3)
-                        Text(demo ? "演示 · 非真实请求" : sourceLabel)
-                            .font(.system(size: 12)).foregroundStyle(palette.text(0.55))
+                        Text(demo ? "演示" : sourceLabel)
+                            .font(.system(size: 11)).foregroundStyle(palette.text(0.55))
                         Spacer(minLength: 4)
-                        Text(task.label).font(.system(size: 12)).foregroundStyle(palette.text(0.55))
+                        Text(task.label).font(.system(size: 11)).foregroundStyle(palette.text(0.55))
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }

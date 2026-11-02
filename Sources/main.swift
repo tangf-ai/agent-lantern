@@ -87,6 +87,8 @@ final class Model: ObservableObject {
     @Published var adaptiveAnimations = UserDefaults.standard.object(forKey: "adaptiveAnimations") as? Bool ?? true
     @Published private(set) var recentAnimationActivities = 0
     @Published var sessionActive = true
+    @Published var detailPresented = false
+    @Published var driftPresented = false
     @Published var showIdle = UserDefaults.standard.bool(forKey: "showIdle")
     @Published var quoteInterval = UserDefaults.standard.double(forKey: "quoteInterval") == 0
         ? 20.0 : UserDefaults.standard.double(forKey: "quoteInterval")
@@ -163,7 +165,8 @@ final class Model: ObservableObject {
         return degraded ? .connecting : .idle
     }
     var activityColor: Color { activityPhase == .waiting || activityPhase == .connecting ? palette.warning : palette.accent }
-    var animateWork: Bool { animationsEnabled && shouldShow && sessionActive }
+    var animateWork: Bool { animationsEnabled && shouldShow && sessionActive && detailPresented }
+    var animateDrift: Bool { animationsEnabled && shouldShow && sessionActive && driftPresented }
     var title: String {
         if paused { return "已暂停显示" }
         if !monitorHealthy && !demo { return "正在连接任务状态" }
@@ -365,25 +368,29 @@ final class Model: ObservableObject {
 }
 
 struct LanternView: View {
+    static let compactWidth: CGFloat = 278
+    static let detailWidth: CGFloat = 334
     @ObservedObject var model: Model
     var openMenu: () -> Void
+    var returnToDrift: (() -> Void)? = nil
     var palette: Palette { model.palette }
     // Only decorative canvas children observe frames; the panel stays event-driven.
     @State private var windClock = WindClock()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 WorkingLight(color: model.activityColor, warning: palette.warning, phase: model.activityPhase,
                              hasWaiting: model.waiting > 0, animationsEnabled: model.animateWork)
-                VStack(alignment: .leading, spacing: 5) {
+                    .scaleEffect(0.83).frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         Text("小灯").font(.system(size: 12, weight: .semibold)).tracking(1.5)
                             .foregroundStyle(palette.text(0.44))
                         if model.demo { Text("预览").font(.system(size: 11)).foregroundStyle(palette.warning) }
                     }
                     HStack(spacing: 7) {
-                        Text(model.title).font(.system(size: 20, weight: .semibold)).foregroundStyle(palette.text(0.94))
+                        Text(model.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(palette.text(0.94))
                             .lineLimit(1).minimumScaleFactor(0.85)
                         if model.activityPhase == .working {
                             WorkingSignal(color: palette.accent, animationsEnabled: model.animateWork)
@@ -396,7 +403,7 @@ struct LanternView: View {
                         .foregroundStyle(palette.text(0.55)).frame(width: 26, height: 26)
                 }.buttonStyle(.plain).help("小灯设置")
             }
-            .padding(.top, 18).padding(.horizontal, 18)
+            .padding(.top, 12).padding(.horizontal, 12)
 
             Button {
                 model.expanded.toggle()
@@ -411,25 +418,33 @@ struct LanternView: View {
                     Image(systemName: model.expanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .font(.system(size: 13)).foregroundStyle(palette.text(0.60))
-                .contentShape(Rectangle()).padding(.vertical, 10)
-            }.buttonStyle(.plain).padding(.horizontal, 21)
+                .font(.system(size: 12)).foregroundStyle(palette.text(0.60))
+                .contentShape(Rectangle()).padding(.vertical, 8)
+            }.buttonStyle(.plain).padding(.horizontal, 16)
                 .accessibilityLabel(model.expanded ? "收起任务详情" : "展开任务详情")
 
             if !model.visualTasks.isEmpty && !model.expanded {
                 MessageFlowCarousel(tasks: model.visualTasks, palette: palette, animationsEnabled: model.animateWork, windClock: windClock, demo: model.demo)
-                    .padding(.horizontal, 21).padding(.bottom, 13)
+                    .padding(.horizontal, 16).padding(.bottom, 8)
             }
-            Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1).padding(.horizontal, 20)
+            Rectangle().fill(palette.ink.opacity(0.07)).frame(height: 1).padding(.horizontal, 16)
 
             HStack(alignment: .center, spacing: 8) {
                 Text("“").font(.system(size: 25, weight: .light, design: .serif)).foregroundStyle(palette.accent.opacity(0.5))
                 Text(model.quote).id(model.quote)
-                    .font(.system(size: 15, weight: .regular)).foregroundStyle(palette.text(0.85))
+                    .font(.system(size: 13, weight: .regular)).foregroundStyle(palette.text(0.85))
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .offset(y: 3)))
                 Spacer(minLength: 0)
-            }.frame(height: 60).padding(.horizontal, 21)
+            }.frame(height: 48).padding(.horizontal, 16)
+
+            if let returnToDrift {
+                Button(action: returnToDrift) {
+                    Label("收起，继续漂浮", systemImage: "wind")
+                        .font(.system(size: 12)).foregroundStyle(palette.text(0.65))
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }.buttonStyle(.plain).padding(.horizontal, 16)
+            }
 
             if model.expanded {
                 VStack(alignment: .leading, spacing: 0) {
@@ -489,7 +504,7 @@ struct LanternView: View {
             }
         }
         .padding(.bottom, 5)
-        .frame(width: 334)
+        .frame(width: model.expanded ? Self.detailWidth : Self.compactWidth)
         .background {
             ZStack {
                 palette.background
@@ -586,6 +601,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var changingFrame = false
     var workspaceObservers: [NSObjectProtocol] = []
     var frameTimer: Timer?
+    var driftPanel: FloatingPanel!
+    var driftHosting: NSHostingView<DriftLightView>!
+    var completionPanel: FloatingPanel!
+    var driftMotion: DriftMotion?
+    var driftScreenID: CGDirectDisplayID?
+    var driftTimer: Timer?
+    var environmentTimer: Timer?
+    var driftEnabled = true
+    var detailOpen = false
+    var fullScreenSuppressed = false
+    var explicitFullScreenDetails = false
+    var menuTracking = false
+    var previousFinished = false
+    var completionDeadline: Double = 0
+    var userSessionActive = true
+    var displayAwake = true
+    var screenLocked = false
     let args = CommandLine.arguments
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -597,9 +629,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.setActivationPolicy(.accessory)
         model = Model(preview: args.contains("--preview"))
+        driftEnabled = model.preview ? args.contains("--preview-drift") :
+            (UserDefaults.standard.object(forKey: "driftEnabled") as? Bool ?? true)
         systemAppearanceChanged()
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(systemAppearanceChanged),
             name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenDidLock),
+            name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenDidUnlock),
+            name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
         // Command-line theme overrides are only for artifact rendering; they do not change saved preferences.
         if let index = args.firstIndex(of: "--theme"), args.indices.contains(index + 1),
            let theme = ThemeChoice(rawValue: args[index + 1]) { model.theme = theme }
@@ -645,16 +683,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
             workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.model.sessionActive = false
+                guard let self else { return }
+                if name == NSWorkspace.sessionDidResignActiveNotification { self.userSessionActive = false }
+                else { self.displayAwake = false }
+                self.updateSessionVisibility()
+            })
+        }
+        workspaceObservers.append(workspace.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                self?.explicitFullScreenDetails = false
+                self?.updateEnvironment()
+            })
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification] {
+            workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.updateEnvironment()
             })
         }
         for name in [NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.screensDidWakeNotification] {
             workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.model.sessionActive = true
-                self?.refresh()
+                guard let self else { return }
+                if name == NSWorkspace.sessionDidBecomeActiveNotification { self.userSessionActive = true }
+                else { self.displayAwake = true }
+                self.updateSessionVisibility()
             })
         }
-        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 334, height: 149),
+        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: LanternView.compactWidth, height: 138),
                               styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "小灯 · 智能体工作灯"
         panel.isOpaque = false
@@ -666,27 +719,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        hosting = NSHostingView(rootView: LanternView(model: model, openMenu: { [weak self] in self?.showMenu() }))
+        hosting = NSHostingView(rootView: makeDetailView())
         panel.contentView = hosting
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = UserDefaults.standard.object(forKey: "panelX") as? Double ?? screen.maxX - 360
+        let x = UserDefaults.standard.object(forKey: "panelX") as? Double ?? screen.maxX - LanternView.compactWidth - 26
         let y = UserDefaults.standard.object(forKey: "panelTop") as? Double ?? screen.maxY - 65
-        let savedFrame = NSRect(x: x, y: y - 149, width: 334, height: 149)
+        let savedFrame = NSRect(x: x, y: y - 138, width: LanternView.compactWidth, height: 138)
         panel.setFrame(visiblePanelFrame(savedFrame), display: false)
+        setupDriftPanel()
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "智能体工作灯")
         item.button?.target = self
         item.button?.action = #selector(statusClick)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         model.onChange = { [weak self] in self?.refresh() }
         model.manualVisible = true
         refresh()
+        environmentTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.updateEnvironment()
+        }
+        updateEnvironment()
         if !model.preview {
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                self?.model.manualVisible = false
-                self?.refresh()
+                guard let self, !self.detailOpen else { return }
+                self.model.manualVisible = false
+                self.refresh()
             }
         }
-        if model.preview && args.contains("--expanded") { model.expanded = true; refresh() }
+        if model.preview && args.contains("--expanded") { detailOpen = true; model.expanded = true; refresh() }
+        if model.preview && args.contains("--preview-details") { showPanel() }
+        if model.preview, let index = args.firstIndex(of: "--verify-drift"), args.indices.contains(index + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.verifyDrift(path: self?.args[index + 1] ?? "")
+                NSApp.terminate(nil)
+            }
+        }
         if let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 self?.saveSnapshot(path: self?.args[index + 1] ?? "")
@@ -712,13 +779,131 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        model?.manualVisible = true
-        model?.paused = false
-        refresh()
+        showPanel()
         return true
     }
     func applicationDidChangeScreenParameters(_ notification: Notification) {
+        updateEnvironment()
+    }
+    private func makeDetailView() -> LanternView {
+        LanternView(model: model, openMenu: { [weak self] in self?.showMenu() },
+                    returnToDrift: driftEnabled ? { [weak self] in self?.resumeDrift() } : nil)
+    }
+    private func screenID(_ screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+    private func updateSessionVisibility() {
+        model.sessionActive = userSessionActive && displayAwake && !screenLocked
+        updateEnvironment()
+    }
+    @objc private func screenDidLock() {
+        screenLocked = true
+        updateSessionVisibility()
+    }
+    @objc private func screenDidUnlock() {
+        screenLocked = false
+        updateSessionVisibility()
+    }
+    private var currentDriftScreen: NSScreen? {
+        NSScreen.screens.first(where: { screenID($0) == driftScreenID }) ?? NSScreen.main ?? NSScreen.screens.first
+    }
+    private func setupDriftPanel() {
+        driftPanel = FloatingPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                   backing: .buffered, defer: false)
+        driftPanel.title = "小灯 · 桌面游光"
+        driftPanel.backgroundColor = .clear
+        driftPanel.isOpaque = false
+        driftPanel.hasShadow = false
+        driftPanel.level = .floating
+        driftPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        driftPanel.ignoresMouseEvents = true
+        driftPanel.isMovable = false
+        driftPanel.hidesOnDeactivate = false
+        driftPanel.isReleasedWhenClosed = false
+        driftHosting = NSHostingView(rootView: DriftLightView(model: model))
+        driftPanel.contentView = driftHosting
+        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(panel.frame.origin) }) ?? NSScreen.main {
+            driftScreenID = screenID(screen)
+            driftMotion = DriftMotion(screen: screen.visibleFrame)
+        }
+        completionPanel = FloatingPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                        backing: .buffered, defer: false)
+        completionPanel.backgroundColor = .clear
+        completionPanel.isOpaque = false
+        completionPanel.hasShadow = false
+        completionPanel.level = .floating
+        completionPanel.collectionBehavior = driftPanel.collectionBehavior
+        completionPanel.ignoresMouseEvents = true
+        completionPanel.isReleasedWhenClosed = false
+        completionPanel.contentView = NSHostingView(rootView: DriftCompletionView(model: model))
+    }
+    private func updateEnvironment() {
+        guard driftPanel != nil else { return }
+        if let screen = currentDriftScreen {
+            driftScreenID = screenID(screen)
+            driftMotion?.setScreen(screen.visibleFrame)
+        }
+        // Only public window bounds and the frontmost PID are needed; no titles or screen images.
+        fullScreenSuppressed = !model.preview && frontmostIsFullScreen()
         refresh()
+    }
+    private func frontmostIsFullScreen() -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication,
+              front.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]],
+              let primaryTop = NSScreen.screens.first?.frame.maxY else { return false }
+        return windows.contains { window in
+            guard (window[kCGWindowOwnerPID as String] as? Int32) == front.processIdentifier,
+                  (window[kCGWindowLayer as String] as? Int) == 0,
+                  let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                  let quartz = CGRect(dictionaryRepresentation: bounds) else { return false }
+            let cocoa = CGRect(x: quartz.minX, y: primaryTop - quartz.maxY, width: quartz.width, height: quartz.height)
+            return NSScreen.screens.contains { DriftScreenPolicy.isFullScreen(window: cocoa, screen: $0.frame) }
+        }
+    }
+    private func updateDriftTimer(visible: Bool) {
+        guard visible else {
+            driftTimer?.invalidate(); driftTimer = nil
+            driftMotion?.pause()
+            return
+        }
+        let enabled = model.animationsEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let interval = enabled ? 1.0 / 30 : 0.2
+        if let driftTimer, abs(driftTimer.timeInterval - interval) < 0.001 { return }
+        driftTimer?.invalidate()
+        driftMotion?.pause()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tickDrift() }
+        timer.tolerance = interval * 0.15
+        RunLoop.main.add(timer, forMode: .common)
+        driftTimer = timer
+    }
+    private func tickDrift() {
+        guard model.driftPresented, !menuTracking, model.sessionActive, !fullScreenSuppressed else {
+            driftMotion?.pause()
+            return
+        }
+        let enabled = model.animationsEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let mouse = NSEvent.mouseLocation
+        driftMotion?.advance(at: ProcessInfo.processInfo.systemUptime, mouse: mouse,
+                             working: model.running > 0, enabled: enabled)
+        if let motion = driftMotion {
+            driftPanel.setFrameOrigin(motion.frame.origin)
+            let near = hypot(mouse.x - motion.center.x, mouse.y - motion.center.y) < 90
+            let alpha: CGFloat = near ? 0.22 : 0.88
+            if driftPanel.alphaValue != alpha { driftPanel.alphaValue = alpha }
+        }
+        updateCompletionBubble()
+    }
+    private func updateCompletionBubble() {
+        guard completionPanel != nil else { return }
+        guard model.driftPresented, model.finished, ProcessInfo.processInfo.systemUptime < completionDeadline,
+              let screen = currentDriftScreen else { completionPanel.orderOut(nil); return }
+        let light = driftPanel.frame
+        let y = light.maxY + 42 < screen.visibleFrame.maxY ? light.maxY + 6 : light.minY - 40
+        let bubble = CGRect(x: light.midX - 87, y: y, width: 174, height: 34)
+        completionPanel.setFrame(WindowPlacement.visibleFrame(bubble, screens: [screen.visibleFrame], fallbackIndex: 0), display: true)
+        completionPanel.orderFrontRegardless()
     }
     private func visiblePanelFrame(_ frame: NSRect) -> NSRect {
         let screens = NSScreen.screens
@@ -728,18 +913,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func refresh() {
         guard panel != nil else { return }
+        if !model.shouldShow { detailOpen = false }
+        let allowed = model.shouldShow && model.sessionActive
+        let detailVisible = allowed && (!fullScreenSuppressed || explicitFullScreenDetails) && (!driftEnabled || detailOpen)
+        let driftVisible = allowed && !fullScreenSuppressed && driftEnabled && !detailOpen
+        if model.detailPresented != detailVisible { model.detailPresented = detailVisible }
+        if model.driftPresented != driftVisible { model.driftPresented = driftVisible }
+        if model.finished && !previousFinished { completionDeadline = ProcessInfo.processInfo.systemUptime + 3.5 }
+        previousFinished = model.finished
         hosting.layoutSubtreeIfNeeded()
         let height = hosting.fittingSize.height
         let current = panel.frame
-        let proposed = NSRect(x: current.minX, y: current.maxY - height, width: 334, height: height)
+        let width = model.expanded ? LanternView.detailWidth : LanternView.compactWidth
+        let proposed = NSRect(x: current.minX, y: current.maxY - height, width: width, height: height)
         let rect = visiblePanelFrame(proposed)
         changingFrame = true
         panel.setFrame(rect, display: true, animate: false)
         changingFrame = false
-        if model.shouldShow { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+        if detailVisible { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+        if driftVisible {
+            if let frame = driftMotion?.frame { driftPanel.setFrame(frame, display: true) }
+            driftPanel.orderFrontRegardless()
+        } else { driftPanel?.orderOut(nil) }
+        updateDriftTimer(visible: driftVisible)
+        updateCompletionBubble()
         let count = model.tasks.count
         item.button?.title = model.demo ? " 示例" : (count > 0 ? " \(count)" : "")
-        item.button?.toolTip = "小灯 · " + model.title
+        item.button?.toolTip = "小灯 · " + model.title + "\n点击查看详情，右键打开设置"
     }
     func windowDidMove(_ notification: Notification) {
         guard !changingFrame else { return }
@@ -751,7 +951,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add("小灯 · 智能体工作灯", nil).isEnabled = false
         add(model.demo ? "预览模式（示例任务）" : model.title, nil).isEnabled = false
         menu.addItem(.separator())
-        add("显示浮窗", #selector(showPanel))
+        add("查看任务详情", #selector(showPanel))
+        if driftEnabled { add("收起详情，继续漂浮", #selector(resumeDrift)) }
+        add("桌面漂浮", #selector(toggleDrift)).state = driftEnabled ? .on : .off
         add("移回主屏幕", #selector(movePanelToPrimaryScreen))
         add("空闲时也显示", #selector(toggleIdle)).state = model.showIdle ? .on : .off
         add(model.paused ? "恢复显示" : "暂停显示", #selector(togglePaused))
@@ -815,8 +1017,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(entry)
         return entry
     }
-    @objc func statusClick() { showMenu(inPanel: false) }
+    @objc func statusClick() {
+        if NSApp.currentEvent?.type == .rightMouseUp { showMenu(inPanel: false) }
+        else if driftEnabled && detailOpen { resumeDrift() }
+        else { showPanel() }
+    }
     func showMenu(inPanel: Bool = true) {
+        menuTracking = true
+        driftMotion?.pause()
+        defer { menuTracking = false; driftMotion?.pause() }
         rebuildMenu()
         if inPanel {
             menu.popUp(positioning: nil, at: NSPoint(x: hosting.bounds.maxX - 28, y: hosting.bounds.maxY - 52), in: hosting)
@@ -824,11 +1033,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY - 6), in: button)
         }
     }
-    @objc func showPanel() { model.manualVisible = true; model.paused = false; refresh() }
+    @objc func showPanel() {
+        if !model.preview { fullScreenSuppressed = frontmostIsFullScreen() }
+        explicitFullScreenDetails = fullScreenSuppressed
+        if driftEnabled && !detailOpen, let frame = driftMotion?.frame {
+            changingFrame = true
+            let width = model.expanded ? LanternView.detailWidth : LanternView.compactWidth
+            panel.setFrameOrigin(NSPoint(x: frame.maxX - width, y: frame.maxY - panel.frame.height))
+            changingFrame = false
+        }
+        detailOpen = true
+        model.manualVisible = true
+        model.paused = false
+        refresh()
+    }
+    @objc func resumeDrift() {
+        detailOpen = false
+        explicitFullScreenDetails = false
+        // A manual detail inspection must not keep an idle light permanently visible.
+        model.manualVisible = false
+        driftMotion?.pause()
+        refresh()
+    }
+    @objc func toggleDrift() {
+        driftEnabled.toggle()
+        if !model.preview { UserDefaults.standard.set(driftEnabled, forKey: "driftEnabled") }
+        detailOpen = !driftEnabled
+        hosting.rootView = makeDetailView()
+        driftMotion?.pause()
+        refresh()
+    }
     @objc func movePanelToPrimaryScreen() {
         guard panel != nil, let screen = NSScreen.screens.first?.visibleFrame else { return }
         model.manualVisible = true
         model.paused = false
+        if let screen = NSScreen.screens.first {
+            driftScreenID = screenID(screen)
+            driftMotion?.setScreen(screen.visibleFrame)
+            driftMotion?.park(near: CGPoint(x: screen.visibleFrame.maxX, y: screen.visibleFrame.maxY))
+        }
         let frame = NSRect(x: screen.maxX - panel.frame.width - 20, y: screen.maxY - panel.frame.height - 20,
                            width: panel.frame.width, height: panel.frame.height)
         changingFrame = true
@@ -897,16 +1140,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let url = Bundle.main.url(forResource: "使用说明", withExtension: "md") { NSWorkspace.shared.open(url) }
     }
     @objc func quit() { NSApp.terminate(nil) }
+    private func verifyDrift(path: String) {
+        // Native presentation checks run only with isolated, explicitly labeled demo tasks.
+        guard model.preview else { return }
+        var checks: [String: Bool] = [:]
+        let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+        checks["drift_size_52"] = driftPanel.frame.size == CGSize(width: 52, height: 52)
+        checks["click_through"] = driftPanel.ignoresMouseEvents && completionPanel.ignoresMouseEvents
+        checks["cannot_take_focus"] = !driftPanel.canBecomeKey && !panel.canBecomeKey
+        checks["single_visible_surface"] = driftPanel.isVisible && !panel.isVisible
+        if model.running > 0 && model.animationsEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            checks["native_timer_moves_light"] = (driftMotion?.distance ?? 0) > 1
+        }
+        saveSnapshot(path: folder.appendingPathComponent("drift.png").path)
+        showPanel()
+        checks["details_stop_drift"] = panel.isVisible && !driftPanel.isVisible && driftTimer == nil
+        checks["details_accept_clicks"] = !panel.ignoresMouseEvents
+        checks["compact_detail_width"] = panel.frame.width == LanternView.compactWidth
+        saveSnapshot(path: folder.appendingPathComponent("details.png").path)
+        model.expanded = true; refresh()
+        checks["expanded_detail_width"] = panel.frame.width == LanternView.detailWidth
+        saveSnapshot(path: folder.appendingPathComponent("expanded.png").path)
+        resumeDrift()
+        checks["resume_drift"] = driftPanel.isVisible && !panel.isVisible && driftTimer != nil
+        model.sessionActive = false; refresh()
+        checks["session_pause_hides_and_stops"] = !driftPanel.isVisible && !panel.isVisible && driftTimer == nil
+        model.sessionActive = true; refresh()
+        checks["session_resume"] = driftPanel.isVisible && driftTimer != nil
+        screenDidLock()
+        checks["lock_hides_and_stops"] = !driftPanel.isVisible && driftTimer == nil
+        displayAwake = true; updateSessionVisibility()
+        checks["wake_does_not_override_lock"] = !driftPanel.isVisible && !model.sessionActive
+        screenDidUnlock()
+        checks["unlock_resumes"] = driftPanel.isVisible && driftTimer != nil
+        displayAwake = false; updateSessionVisibility(); screenDidUnlock()
+        checks["unlock_does_not_override_sleep"] = !driftPanel.isVisible && !model.sessionActive
+        displayAwake = true; updateSessionVisibility()
+        fullScreenSuppressed = true; refresh()
+        checks["full_screen_hides_and_stops"] = !driftPanel.isVisible && !panel.isVisible && driftTimer == nil
+        showPanel()
+        checks["full_screen_explicit_details_available"] = panel.isVisible && !driftPanel.isVisible
+        resumeDrift()
+        checks["full_screen_return_hides_ambient"] = !driftPanel.isVisible && !panel.isVisible
+        fullScreenSuppressed = false; refresh()
+        model.paused = true; refresh()
+        checks["pause_hides"] = !driftPanel.isVisible && driftTimer == nil
+        model.paused = false; refresh()
+        toggleDrift()
+        checks["fixed_mode_available"] = panel.isVisible && !driftPanel.isVisible && driftTimer == nil
+        toggleDrift()
+        checks["drift_mode_restored"] = driftPanel.isVisible && !panel.isVisible
+        checks["foreground_unchanged"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
+        model.tasks = []; model.finished = true; refresh()
+        checks["completion_bubble"] = completionPanel.isVisible && completionPanel.ignoresMouseEvents
+        if let bubbleView = completionPanel.contentView,
+           let image = bubbleView.bitmapImageRepForCachingDisplay(in: bubbleView.bounds) {
+            bubbleView.cacheDisplay(in: bubbleView.bounds, to: image)
+            if let data = image.representation(using: .png, properties: [:]) {
+                try? data.write(to: folder.appendingPathComponent("completion.png"))
+            }
+        }
+        completionDeadline = 0; updateCompletionBubble()
+        checks["completion_bubble_expires"] = !completionPanel.isVisible
+        model.finished = false; model.demo = false; model.manualVisible = false
+        model.showIdle = false; model.monitorHealthy = true; model.adapters = []; refresh()
+        checks["idle_hides"] = !driftPanel.isVisible && !panel.isVisible && driftTimer == nil
+        let result: [String: Any] = ["passed": checks.values.allSatisfy { $0 }, "checks": checks]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
     func saveSnapshot(path: String) {
-        hosting.layoutSubtreeIfNeeded()
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
-        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let target: NSView = model.driftPresented ? driftHosting : hosting
+        target.layoutSubtreeIfNeeded()
+        guard let rep = target.bitmapImageRepForCachingDisplay(in: target.bounds) else { return }
+        target.cacheDisplay(in: target.bounds, to: rep)
         if let data = rep.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: path)) }
     }
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
         for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         frameTimer?.invalidate()
+        driftTimer?.invalidate()
+        environmentTimer?.invalidate()
         model?.stop()
     }
 }
