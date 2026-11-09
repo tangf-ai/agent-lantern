@@ -22,6 +22,17 @@ check(!gate.consume([event("future", 200)], at: 156, allowSound: true), "Bad fut
 check(gate.consume([event("a", 157), event("b", 157.5)], at: 158, allowSound: true), "Batch should produce one sound")
 print("Completion sound: startup, individual completion, deduplication, mute, preview, reconnect, late history and batching: PASS")
 
+var delayedGate = CompletionGate()
+_ = delayedGate.consumeFresh([], at: 100, enabled: true)
+_ = delayedGate.consumeFresh([], at: 102, enabled: true)
+_ = delayedGate.consumeFresh([], at: 104, enabled: true)
+check(delayedGate.consumeFresh([event("delayed-file", 101)], at: 106, enabled: true).count == 1,
+      "A new completion delivered after several collector polls must not be mistaken for startup history")
+check(delayedGate.consumeFresh([event("before-connect", 99)], at: 108, enabled: true).isEmpty,
+      "Accepting delayed delivery must not replay events from before the connection")
+check(delayedGate.consumeFresh([event("expired-delivery", 101)], at: 116, enabled: true).isEmpty,
+      "Delayed delivery still has a bounded freshness window")
+
 var visualGate = CompletionGate()
 check(visualGate.consumeFresh([event("seed", 99)], at: 100, enabled: true).isEmpty, "Visual startup must seed history")
 let visualEvents = visualGate.consumeFresh([event("one", 101), event("one", 101), event("two", 101.5)], at: 102, enabled: true)
