@@ -34,7 +34,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 自适应陪伴节奏：运行任务越多、近期新活动越密集，风车与流星平滑加速，极光轻微跟随；排除等待确认和历史活动，可在菜单关闭。
 - 每个任务独立显示 TPS：明确区分流式实测速度、最近响应均速与暂无数据；不按字符或文字块猜测 token 数。
 - 单项任务结束提示音，支持试听、关闭、去重；启动和重连不会补响历史任务。
-- 原生「烟花谢幕」：单个任务结束放两发，全部收工时六发连放；连续完成合并、原地升级，最长六秒。透明浮层从小灯位置发射，只在所在屏幕播放，点击穿透、不抢焦点。
+- 原生「烟花谢幕」：单个任务结束放两发、持续约 6 秒，全部收工时六发连放、持续约 8 秒；连续完成合并、原地升级，最长 10 秒。透明浮层从小灯位置发射，只在所在屏幕播放，点击穿透、不抢焦点。
 - 烟花与提示音独立开关，菜单可预览；关闭工作动画或开启系统减少动态效果时只显示静态完成提示，暂停、全屏、锁屏和休眠时取消，不补播。
 - 只读本地状态，不调用模型，不上传对话，不结束或重启智能体。
 
@@ -42,7 +42,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.2-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.3-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 

@@ -7,18 +7,19 @@ final class CelebrationRenderProbe {
     private var frames = 0
     private var particleFrames = 0
     private var lastAge = 0.0
+    private var lastParticles = 0
     func reset() {
         lock.lock(); defer { lock.unlock() }
-        frames = 0; particleFrames = 0; lastAge = 0
+        frames = 0; particleFrames = 0; lastAge = 0; lastParticles = 0
     }
     func record(age: Double, particles: Int) {
         lock.lock(); defer { lock.unlock() }
-        frames += 1; lastAge = age
+        frames += 1; lastAge = age; lastParticles = particles
         if particles > 0 { particleFrames += 1 }
     }
     var snapshot: [String: Any] {
         lock.lock(); defer { lock.unlock() }
-        return ["frames": frames, "particleFrames": particleFrames, "lastAge": lastAge]
+        return ["frames": frames, "particleFrames": particleFrames, "lastAge": lastAge, "lastParticles": lastParticles]
     }
 }
 
@@ -119,7 +120,7 @@ struct CelebrationView: View {
                 dot(head, radius: 2.4, color: color, alpha: 1)
             }
             let t = launched - flight
-            guard t >= 0 && t < 2.65 else { continue }
+            guard t >= 0 && t < CompletionCelebration.particleLifetime else { continue }
             let radius = min(size.width * 0.25, size.height * 0.42) * burst.scale
             if t < 0.16 { dot(target, radius: 16 * (1 - t / 0.16), color: color, alpha: 0.5 * (1 - t / 0.16)) }
             for particle in 0..<110 {
@@ -128,11 +129,14 @@ struct CelebrationView: View {
                 let angle = 2 * Double.pi * Double(particle) / 110 + noise(seed) * 0.1
                 let speed = radius * (0.65 + noise(seed + 41) * 0.5)
                 func position(_ at: Double) -> CGPoint {
-                    let t = max(0, at), distance = (1 - exp(-1.65 * t)) / 1.65
+                    let age = max(0, at)
+                    // Preserve the first second's explosive motion, then let the embers drift slowly.
+                    let t = age <= 1 ? age : 1 + (age - 1) * 1.65 / (CompletionCelebration.particleLifetime - 1)
+                    let distance = (1 - exp(-1.65 * t)) / 1.65
                     return CGPoint(x: target.x + cos(angle) * speed * distance,
                                    y: target.y + sin(angle) * speed * distance + 16 * t * t)
                 }
-                let point = position(t), fade = pow(max(0, 1 - t / 2.65), 1.1)
+                let point = position(t), fade = pow(max(0, 1 - t / CompletionCelebration.particleLifetime), 0.9)
                 line(point, position(t - 0.055), color: color, alpha: fade * 0.75)
                 dot(point, radius: 1 + noise(seed + 88), color: color,
                     alpha: fade * (0.65 + 0.35 * sin(t * 20 + Double(seed))))

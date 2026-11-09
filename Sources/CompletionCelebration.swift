@@ -11,6 +11,10 @@ struct CelebrationBurst: Equatable {
 
 /// A single bounded show. Further completions update it instead of restarting or queuing shows.
 struct CompletionCelebration: Equatable {
+    static let singleDuration = 6.0
+    static let finaleDuration = 8.0
+    static let maximumDuration = 10.0
+    static let particleLifetime = 4.8
     let began: Double
     private(set) var duration: Double
     private(set) var bursts: [CelebrationBurst]
@@ -26,7 +30,7 @@ struct CompletionCelebration: Equatable {
     init?(events: [TaskCompletion], remaining: Int, waiting: Int, allEnded: Bool, at time: Double, demo: Bool = false) {
         guard let last = events.last, time.isFinite else { return nil }
         began = time
-        duration = allEnded ? 5.2 : 3.6
+        duration = allEnded ? Self.finaleDuration : Self.singleDuration
         bursts = Self.opening(allEnded: allEnded)
         completedCount = events.count
         agent = last.agent
@@ -49,11 +53,11 @@ struct CompletionCelebration: Equatable {
         self.waiting = min(max(0, waiting), self.remaining)
         if allEnded && !finaleAdded {
             let age = time - began
-            // Upgrade the current show once. Never extend beyond six seconds from its original start.
+            // Upgrade once and leave time for the slower embers, within a bounded total show.
             bursts += Self.opening(allEnded: true).dropFirst(2).map {
-                var burst = $0; burst.launch = age + 0.1 + (burst.launch - 0.88) * 0.6; return burst
+                var burst = $0; burst.launch = age + 0.1 + (burst.launch - 1.2) * 0.6; return burst
             }
-            duration = min(6, max(5.2, age + 3.2))
+            duration = min(Self.maximumDuration, max(Self.finaleDuration, age + 6.4))
             finaleAdded = true
         }
         self.allEnded = allEnded
@@ -83,11 +87,11 @@ struct CompletionCelebration: Equatable {
                     CelebrationBurst(launch: 0.76, x: 0.44, y: 0.31, scale: 0.75, color: 1)]
         }
         return [CelebrationBurst(launch: 0.30, x: 0.30, y: 0.27, scale: 1.00, color: 0),
-                CelebrationBurst(launch: 0.62, x: 0.63, y: 0.22, scale: 0.80, color: 1),
-                CelebrationBurst(launch: 0.88, x: 0.46, y: 0.42, scale: 0.90, color: 2),
-                CelebrationBurst(launch: 1.24, x: 0.78, y: 0.31, scale: 0.70, color: 3),
-                CelebrationBurst(launch: 1.50, x: 0.21, y: 0.47, scale: 0.65, color: 0),
-                CelebrationBurst(launch: 1.88, x: 0.53, y: 0.25, scale: 1.05, color: 0)]
+                CelebrationBurst(launch: 0.80, x: 0.63, y: 0.22, scale: 0.80, color: 1),
+                CelebrationBurst(launch: 1.20, x: 0.46, y: 0.42, scale: 0.90, color: 2),
+                CelebrationBurst(launch: 1.65, x: 0.78, y: 0.31, scale: 0.70, color: 3),
+                CelebrationBurst(launch: 2.05, x: 0.21, y: 0.47, scale: 0.65, color: 0),
+                CelebrationBurst(launch: 2.60, x: 0.53, y: 0.25, scale: 1.05, color: 0)]
     }
 
     static func source(lightCenter: CGPoint, screen: CGRect) -> CGPoint {

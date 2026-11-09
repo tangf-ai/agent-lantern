@@ -1358,6 +1358,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             liveRender = render
             checks["live_canvas_advances"] = (render["frames"] as? Int ?? 0) >= 12 && (render["lastAge"] as? Double ?? 0) > 1
             checks["live_canvas_draws_particles"] = (render["particleFrames"] as? Int ?? 0) >= 6
+            RunLoop.main.run(until: Date().addingTimeInterval(3))
+            let lateRender = celebrationDisplay.renderProbe.snapshot
+            liveRender["extendedTail"] = lateRender
+            checks["extended_single_still_draws_embers"] = celebrationPanel.isVisible &&
+                (lateRender["lastAge"] as? Double ?? 0) > 4.5 && (lateRender["lastParticles"] as? Int ?? 0) > 0
         }
         let began = celebrationDisplay.show?.began
         receive([history, first], at: base + 6, remaining: Array(tasks.suffix(1)))

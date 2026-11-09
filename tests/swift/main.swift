@@ -43,22 +43,26 @@ check(visualGate.consumeFresh([], at: .nan, enabled: true).isEmpty, "Invalid sna
 check(visualGate.consumeFresh([event("afterInvalid", 107)], at: 108, enabled: true).isEmpty, "Invalid timing must force a silent reconnect")
 check(CompletionCelebration(events: [], remaining: 0, waiting: 0, allEnded: true, at: 100) == nil, "Task disappearance alone cannot start fireworks")
 var show = CompletionCelebration(events: [event("one", 101)], remaining: 2, waiting: 1, allEnded: false, at: 100)!
-check(show.bursts.count == 2 && show.duration == 3.6 && !show.allEnded, "An individual completion has two bursts")
+check(show.bursts.count == 2 && show.duration == 6 && !show.allEnded, "An individual completion has two bursts lasting six seconds")
 check(show.subtitle.contains("等你确认"), "Waiting work must not be reported as running")
 show.merge(events: [event("two", 102)], remaining: 1, waiting: 0, allEnded: false, at: 101)
 check(show.began == 100 && show.completedCount == 2 && show.bursts.count == 2, "A burst of completions merges without replay")
 show.updateRemaining(0, waiting: 0, allEnded: true)
 check(!show.allEnded && show.bursts.count == 2, "Task disappearance without a fresh completion must not declare a finale")
 show.merge(events: [event("last", 103)], remaining: 0, waiting: 0, allEnded: true, at: 103)
-check(show.bursts.count == 6 && show.allEnded && show.duration == 6 && show.began == 100, "The finale upgrades in place with a six-second ceiling")
+check(show.bursts.count == 6 && show.allEnded && show.duration >= 8 && show.duration <= 10 && show.began == 100, "The finale upgrades in place with an extended, bounded tail")
+let upgradedDuration = show.duration
 show.updateRemaining(1, waiting: 0, allEnded: false)
 check(!show.allEnded && show.subtitle.contains("1"), "New work must clear an obsolete all-ended label")
 show.merge(events: [event("another", 104)], remaining: 0, waiting: 0, allEnded: true, at: 104)
-check(show.bursts.count == 6 && show.duration == 6, "A show can only add the finale once")
-check(!show.isActive(at: 106) && !show.isActive(at: .nan), "Shows expire with no looping or invalid time")
+check(show.bursts.count == 6 && show.duration == upgradedDuration, "A show can only add the finale once")
+check(show.isActive(at: 107) && !show.isActive(at: 110) && !show.isActive(at: .nan), "Extended finales remain visible and still expire")
 let expired = show
-show.merge(events: [event("tooLate", 107)], remaining: 0, waiting: 0, allEnded: true, at: 107)
+show.merge(events: [event("tooLate", 111)], remaining: 0, waiting: 0, allEnded: true, at: 111)
 check(show == expired, "An expired show cannot be revived by a merge")
+var lateFinale = CompletionCelebration(events: [event("start", 100)], remaining: 1, waiting: 0, allEnded: false, at: 100)!
+lateFinale.merge(events: [event("last", 105.5)], remaining: 0, waiting: 0, allEnded: true, at: 105.5)
+check(lateFinale.duration == 10 && lateFinale.bursts.count == 6, "A late upgrade cannot exceed ten seconds")
 let secondary = CGRect(x: -1920, y: 300, width: 1920, height: 1080)
 check(CompletionCelebration.source(lightCenter: CGPoint(x: -100, y: 1200), screen: secondary) == CGPoint(x: 1820, y: 180),
       "Particle sources must convert secondary-screen Cocoa coordinates into local top-down coordinates")
