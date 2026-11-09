@@ -634,25 +634,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let args = CommandLine.arguments
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if args.contains("--diagnose-running") || args.contains("--preview-running-fireworks") {
-            let diagnose = args.contains("--diagnose-running")
-            let name = diagnose ? "local.agentlantern.diagnose" : "local.agentlantern.preview-fireworks"
-            DistributedNotificationCenter.default().postNotificationName(NSNotification.Name(name), object: nil,
-                userInfo: ["single": args.contains("--single")], deliverImmediately: true)
-            if diagnose {
-                let file = supportURL.appendingPathComponent("completion-diagnostics.json")
-                let began = Date()
-                let deadline = began.addingTimeInterval(3)
-                while Date() < deadline {
-                    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-                    if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                       date >= began, let data = try? Data(contentsOf: file), let text = String(data: data, encoding: .utf8) {
-                        print(text); break
-                    }
-                }
-            }
-            NSApp.terminate(nil); return
-        }
         // One GUI instance; opening again brings the existing app's panel back.
         if !args.contains("--preview"), NSRunningApplication.runningApplications(withBundleIdentifier: "local.agentlantern.desktop")
             .contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
@@ -1531,6 +1512,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         celebrationTimer?.invalidate()
         model?.stop()
     }
+}
+
+// Command clients must not register a GUI instance: that can race the resident's single-instance guard.
+let commandArgs = CommandLine.arguments
+if commandArgs.contains("--diagnose-running") || commandArgs.contains("--preview-running-fireworks") {
+    let diagnose = commandArgs.contains("--diagnose-running")
+    let name = diagnose ? "local.agentlantern.diagnose" : "local.agentlantern.preview-fireworks"
+    let began = Date()
+    DistributedNotificationCenter.default().postNotificationName(NSNotification.Name(name), object: nil,
+        userInfo: ["single": commandArgs.contains("--single")], deliverImmediately: true)
+    if diagnose {
+        let file = supportURL.appendingPathComponent("completion-diagnostics.json")
+        let deadline = began.addingTimeInterval(3)
+        var received = false
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+               date >= began, let data = try? Data(contentsOf: file), let text = String(data: data, encoding: .utf8) {
+                print(text); received = true; break
+            }
+        }
+        if !received { fputs("Resident lantern did not respond\n", stderr); exit(1) }
+    }
+    exit(0)
 }
 
 let app = NSApplication.shared
