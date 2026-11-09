@@ -1,6 +1,27 @@
 import SwiftUI
 import AppKit
 
+/// Non-observable evidence of real Canvas draws; inspecting it cannot cause a redraw itself.
+final class CelebrationRenderProbe {
+    private let lock = NSLock()
+    private var frames = 0
+    private var particleFrames = 0
+    private var lastAge = 0.0
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        frames = 0; particleFrames = 0; lastAge = 0
+    }
+    func record(age: Double, particles: Int) {
+        lock.lock(); defer { lock.unlock() }
+        frames += 1; lastAge = age
+        if particles > 0 { particleFrames += 1 }
+    }
+    var snapshot: [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        return ["frames": frames, "particleFrames": particleFrames, "lastAge": lastAge]
+    }
+}
+
 final class CelebrationDisplay: ObservableObject {
     @Published var show: CompletionCelebration?
     @Published var source = CGPoint.zero
@@ -8,6 +29,7 @@ final class CelebrationDisplay: ObservableObject {
     @Published var moving = true
     // Only set by isolated native previews; production always uses monotonic time.
     @Published var previewAge: Double?
+    let renderProbe = CelebrationRenderProbe()
 }
 
 struct CelebrationView: View {
@@ -20,9 +42,12 @@ struct CelebrationView: View {
                 let center = CompletionCelebration.toastCenter(source: display.source, size: geometry.size, width: width)
                 ZStack(alignment: .topLeading) {
                     if display.moving {
-                        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: display.previewAge != nil)) { _ in
+                        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: display.previewAge != nil)) { timeline in
+                            // Capture the scheduled age outside Canvas. A closure reading uptime only
+                            // while drawing can be reused unchanged, leaving the live canvas on frame zero.
+                            let lag = Date().timeIntervalSince(timeline.date)
+                            let age = display.previewAge ?? max(0, ProcessInfo.processInfo.systemUptime - show.began - lag)
                             Canvas { context, size in
-                                let age = display.previewAge ?? max(0, ProcessInfo.processInfo.systemUptime - show.began)
                                 draw(context, size: size, show: show, age: age)
                             }
                         }.accessibilityHidden(true)
@@ -49,6 +74,7 @@ struct CelebrationView: View {
     }
 
     private func draw(_ context: GraphicsContext, size: CGSize, show: CompletionCelebration, age: Double) {
+        var drawnParticles = 0
         let dark = display.palette.isDark
         let colors: [Color] = dark
             ? [Color(red: 1, green: 0.81, blue: 0.47), Color(red: 0.51, green: 0.90, blue: 0.71),
@@ -97,6 +123,7 @@ struct CelebrationView: View {
             let radius = min(size.width * 0.25, size.height * 0.42) * burst.scale
             if t < 0.16 { dot(target, radius: 16 * (1 - t / 0.16), color: color, alpha: 0.5 * (1 - t / 0.16)) }
             for particle in 0..<110 {
+                drawnParticles += 1
                 let seed = particle + index * 200
                 let angle = 2 * Double.pi * Double(particle) / 110 + noise(seed) * 0.1
                 let speed = radius * (0.65 + noise(seed + 41) * 0.5)
@@ -114,5 +141,6 @@ struct CelebrationView: View {
                 }
             }
         }
+        if display.previewAge == nil { display.renderProbe.record(age: age, particles: drawnParticles) }
     }
 }

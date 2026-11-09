@@ -760,6 +760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: NSNotification.Name("local.agentlantern.diagnose"), object: nil)
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(previewRunningFireworks(_:)),
             name: NSNotification.Name("local.agentlantern.preview-fireworks"), object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(movePanelToPrimaryScreen),
+            name: NSNotification.Name("local.agentlantern.move-primary"), object: nil)
         model.manualVisible = true
         refresh()
         environmentTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -902,6 +904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             show.merge(events: events, remaining: remaining, waiting: waiting, allEnded: ended, at: now)
             celebrationDisplay.show = show
         } else {
+            celebrationDisplay.renderProbe.reset()
             celebrationDisplay.show = CompletionCelebration(events: events, remaining: remaining, waiting: waiting,
                                                             allEnded: ended, at: now, demo: demo)
             celebrationScreenID = screenID(screen)
@@ -949,7 +952,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "sessionActive": model.sessionActive, "paused": model.paused, "demo": model.demo,
             "monitorHealthy": model.monitorHealthy, "fullscreen": fullScreenSuppressed,
             "tasks": model.tasks.count, "driftFrame": NSStringFromRect(driftPanel.frame),
-            "playbackVisible": celebrationPanel.isVisible, "records": completionDiagnostics]
+            "playbackVisible": celebrationPanel.isVisible, "render": celebrationDisplay.renderProbe.snapshot,
+            "records": completionDiagnostics]
         guard let data = try? JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys]) else { return }
         let file = supportURL.appendingPathComponent("completion-diagnostics.json")
         try? data.write(to: file, options: .atomic)
@@ -1320,6 +1324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func verifyFireworks(path: String) {
         guard model.preview else { return }
         var checks: [String: Bool] = [:]
+        var liveRender: [String: Any] = [:]
         let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -1346,6 +1351,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         checks["delayed_completion_not_lost"] = celebrationDisplay.show?.completedCount == 1
         checks["other_uncertain_task_does_not_block_verified_completion"] = model.degraded && celebrationPanel.isVisible
         checks["remaining_tasks_are_real"] = celebrationDisplay.show?.remaining == 1 && !model.tasks.isEmpty
+        if model.animationsEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            // No snapshots, pinned ages or state writes: only the live timeline can advance the renderer.
+            RunLoop.main.run(until: Date().addingTimeInterval(1.8))
+            let render = celebrationDisplay.renderProbe.snapshot
+            liveRender = render
+            checks["live_canvas_advances"] = (render["frames"] as? Int ?? 0) >= 12 && (render["lastAge"] as? Double ?? 0) > 1
+            checks["live_canvas_draws_particles"] = (render["particleFrames"] as? Int ?? 0) >= 6
+        }
         let began = celebrationDisplay.show?.began
         receive([history, first], at: base + 6, remaining: Array(tasks.suffix(1)))
         checks["duplicate_does_not_restart"] = celebrationDisplay.show?.completedCount == 1 && celebrationDisplay.show?.began == began
@@ -1400,7 +1413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         receive([TaskCompletion(id: "reconnect", agent: "Codex", label: "重连历史", at: base + 29)], at: base + 30, remaining: [])
         checks["reconnect_history_silent"] = celebrationDisplay.show == nil
         checks["foreground_unchanged"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
-        let result: [String: Any] = ["passed": checks.values.allSatisfy { $0 }, "checks": checks]
+        let result: [String: Any] = ["passed": checks.values.allSatisfy { $0 }, "checks": checks, "liveRender": liveRender]
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))
         }
@@ -1516,9 +1529,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 // Command clients must not register a GUI instance: that can race the resident's single-instance guard.
 let commandArgs = CommandLine.arguments
-if commandArgs.contains("--diagnose-running") || commandArgs.contains("--preview-running-fireworks") {
+if commandArgs.contains("--diagnose-running") || commandArgs.contains("--preview-running-fireworks") || commandArgs.contains("--move-running-to-primary") {
     let diagnose = commandArgs.contains("--diagnose-running")
-    let name = diagnose ? "local.agentlantern.diagnose" : "local.agentlantern.preview-fireworks"
+    let name = diagnose ? "local.agentlantern.diagnose" :
+        commandArgs.contains("--move-running-to-primary") ? "local.agentlantern.move-primary" : "local.agentlantern.preview-fireworks"
     let began = Date()
     DistributedNotificationCenter.default().postNotificationName(NSNotification.Name(name), object: nil,
         userInfo: ["single": commandArgs.contains("--single")], deliverImmediately: true)
