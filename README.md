@@ -34,13 +34,15 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 - 自适应陪伴节奏：运行任务越多、近期新活动越密集，风车与流星平滑加速，极光轻微跟随；排除等待确认和历史活动，可在菜单关闭。
 - 每个任务独立显示 TPS：明确区分流式实测速度、最近响应均速与暂无数据；不按字符或文字块猜测 token 数。
 - 单项任务结束提示音，支持试听、关闭、去重；启动和重连不会补响历史任务。
+- 原生「烟花谢幕」：单个任务结束放两发，全部收工时六发连放；连续完成合并、原地升级，最长六秒。透明浮层从小灯位置发射，只在所在屏幕播放，点击穿透、不抢焦点。
+- 烟花与提示音独立开关，菜单可预览；关闭工作动画或开启系统减少动态效果时只显示静态完成提示，暂停、全屏、锁屏和休眠时取消，不补播。
 - 只读本地状态，不调用模型，不上传对话，不结束或重启智能体。
 
 完整说明见 [使用说明](Resources/使用说明.md)。
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.10.1-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.0-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -121,7 +123,7 @@ python3 -m unittest discover -s tests -v
 node --experimental-strip-types tests/test_pi.mjs
 node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
-swiftc Sources/CompletionGate.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift Sources/DriftMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
+swiftc Sources/CompletionGate.swift Sources/CompletionCelebration.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift Sources/DriftMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
 ```
 
@@ -133,12 +135,14 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 mkdir -p build.noindex/drift-check
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-drift "$PWD/build.noindex/drift-check/result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area top --verify-drift "$PWD/build.noindex/drift-check/top-result.json"
+build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-fireworks "$PWD/build.noindex/fireworks-check/result.json"
 ```
 
 ## 源码
 
 - `Sources/main.swift`：原生浮窗、菜单栏、轮播、状态与收起逻辑。
 - `Sources/CompletionGate.swift`：完成事件去重、启动及重连静音。
+- `Sources/CompletionCelebration.swift` / `Sources/CelebrationView.swift`：单项烟花、全部收工谢幕、连续完成合并与原生透明绘制；仅由新鲜完成事件触发，不把任务消失当成成功。
 - `Sources/MessageFlow.swift` / `Sources/MessageFlowView.swift`：有时效限制的阶段解释与双向通信动画。
 - `Sources/TransferPlayback.swift`：共享的近期通信播放队列，处理采集延迟、去重、过期与启动静音，独立于当前工作阶段。
 - `Sources/MechanismScene.swift`：能量脉冲、吸收涟漪、工作闭环及模型分层计算的原生矢量示意；不读取模型内部信息。

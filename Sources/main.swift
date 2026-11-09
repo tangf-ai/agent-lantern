@@ -78,6 +78,7 @@ final class Model: ObservableObject {
     @Published var theme = ThemeChoice(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "dark") ?? .dark
     @Published var systemDark = false
     @Published var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
+    @Published var fireworksEnabled = UserDefaults.standard.object(forKey: "fireworksEnabled") as? Bool ?? true
     @Published var animationsEnabled = UserDefaults.standard.object(forKey: "animationsEnabled") as? Bool ?? true
     @Published var meteorEnabled = UserDefaults.standard.object(forKey: "meteorEnabled") as? Bool ?? true
     @Published var meteorStrength = min(0.6, max(0.15, UserDefaults.standard.object(forKey: "meteorStrength") as? Double ?? 0.25))
@@ -93,6 +94,7 @@ final class Model: ObservableObject {
     @Published var quoteInterval = UserDefaults.standard.double(forKey: "quoteInterval") == 0
         ? 20.0 : UserDefaults.standard.double(forKey: "quoteInterval")
     var onChange: (() -> Void)?
+    var onCompletions: (([TaskCompletion]) -> Void)?
     var collector: Process?
     var pipe: Pipe?
     var quoteTimer: Timer?
@@ -258,12 +260,14 @@ final class Model: ObservableObject {
             if let snap = try? JSONDecoder().decode(Snapshot.self, from: line), snap.schema == 1 {
                 let healthyAgents = Set(snap.adapters.filter { $0.status == "ready" }.map { $0.agent })
                 let completed = (snap.completions ?? []).filter { healthyAgents.contains($0.agent) }
-                if completionGate.consume(completed, at: snap.updated, allowSound: !demo && soundEnabled) {
+                let fresh = completionGate.consumeFresh(completed, at: snap.updated, enabled: !demo)
+                if !fresh.isEmpty && soundEnabled {
                     playCompletionSound()
                 }
                 lastSnapshot = snap
                 lastUpdate = Date()
                 if !demo { apply(snap) }
+                if !fresh.isEmpty { onCompletions?(fresh) }
             }
         }
         if buffer.count > 2_000_000 { buffer.removeAll() }
@@ -604,6 +608,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var driftPanel: FloatingPanel!
     var driftHosting: NSHostingView<DriftLightView>!
     var completionPanel: FloatingPanel!
+    var celebrationPanel: FloatingPanel!
+    let celebrationDisplay = CelebrationDisplay()
+    var celebrationTimer: Timer?
+    var celebrationScreenID: CGDirectDisplayID?
     var driftMotion: DriftMotion?
     var driftScreenID: CGDirectDisplayID?
     var driftTimer: Timer?
@@ -740,12 +748,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item.button?.action = #selector(statusClick)
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         model.onChange = { [weak self] in self?.refresh() }
+        model.onCompletions = { [weak self] events in self?.showCelebration(events: events) }
         model.manualVisible = true
         refresh()
         environmentTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.updateEnvironment()
         }
         updateEnvironment()
+        if model.preview && args.contains("--preview-fireworks") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.previewFireworks() }
+        }
+        if model.preview, let index = args.firstIndex(of: "--verify-fireworks"), args.indices.contains(index + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.verifyFireworks(path: self?.args[index + 1] ?? "")
+                NSApp.terminate(nil)
+            }
+        }
         if !model.preview {
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
                 guard let self, !self.detailOpen else { return }
@@ -843,6 +861,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         completionPanel.ignoresMouseEvents = true
         completionPanel.isReleasedWhenClosed = false
         completionPanel.contentView = NSHostingView(rootView: DriftCompletionView(model: model))
+        celebrationPanel = FloatingPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                         backing: .buffered, defer: false)
+        celebrationPanel.title = "小灯 · 烟花谢幕"
+        celebrationPanel.backgroundColor = .clear
+        celebrationPanel.isOpaque = false
+        celebrationPanel.hasShadow = false
+        celebrationPanel.level = .floating
+        celebrationPanel.collectionBehavior = driftPanel.collectionBehavior
+        celebrationPanel.ignoresMouseEvents = true
+        celebrationPanel.isMovable = false
+        celebrationPanel.hidesOnDeactivate = false
+        celebrationPanel.isReleasedWhenClosed = false
+        celebrationPanel.contentView = NSHostingView(rootView: CelebrationView(display: celebrationDisplay))
+    }
+    private func showCelebration(events: [TaskCompletion], demo: Bool = false, allEnded: Bool? = nil) {
+        guard model.fireworksEnabled, !model.paused, model.sessionActive, !fullScreenSuppressed,
+              let screen = model.driftPresented ? currentDriftScreen :
+                NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: panel.frame.midX, y: panel.frame.midY)) }) ?? NSScreen.main,
+              !events.isEmpty else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let ended = allEnded ?? (model.tasks.isEmpty && !model.degraded)
+        let remaining = demo ? (ended ? 0 : 2) : model.tasks.count
+        let waiting = demo ? 0 : model.waiting
+        if var show = celebrationDisplay.show, show.demo == demo, show.isActive(at: now) {
+            show.merge(events: events, remaining: remaining, waiting: waiting, allEnded: ended, at: now)
+            celebrationDisplay.show = show
+        } else {
+            celebrationDisplay.show = CompletionCelebration(events: events, remaining: remaining, waiting: waiting,
+                                                            allEnded: ended, at: now, demo: demo)
+            celebrationScreenID = screenID(screen)
+            let source = model.driftPresented ? CGPoint(x: driftPanel.frame.midX, y: driftPanel.frame.midY) :
+                CGPoint(x: panel.frame.minX + 42, y: panel.frame.maxY - 48)
+            celebrationDisplay.source = CompletionCelebration.source(lightCenter: source, screen: screen.visibleFrame)
+        }
+        driftMotion?.pause()
+        if celebrationTimer == nil {
+            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateCelebration() }
+            RunLoop.main.add(timer, forMode: .common)
+            celebrationTimer = timer
+        }
+        updateCelebration()
+        updateCompletionBubble()
+    }
+    private func stopCelebration() {
+        celebrationTimer?.invalidate(); celebrationTimer = nil
+        celebrationDisplay.show = nil
+        celebrationDisplay.previewAge = nil
+        celebrationPanel?.orderOut(nil)
+        driftMotion?.pause()
+    }
+    private func updateCelebration() {
+        guard let show = celebrationDisplay.show else { return }
+        guard model.fireworksEnabled, !model.paused, model.sessionActive, !fullScreenSuppressed,
+              show.demo || (model.monitorHealthy && !model.demo),
+              show.isActive(at: ProcessInfo.processInfo.systemUptime),
+              let screen = NSScreen.screens.first(where: { screenID($0) == celebrationScreenID }) else {
+            stopCelebration(); return
+        }
+        if !show.demo {
+            var updated = show
+            updated.updateRemaining(model.tasks.count, waiting: model.waiting, allEnded: model.tasks.isEmpty && !model.degraded)
+            if updated != show { celebrationDisplay.show = updated }
+        }
+        let moving = model.animationsEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if celebrationDisplay.moving != moving { celebrationDisplay.moving = moving }
+        if celebrationDisplay.palette != model.palette { celebrationDisplay.palette = model.palette }
+        celebrationPanel.setFrame(screen.visibleFrame, display: true)
+        if !celebrationPanel.isVisible { celebrationPanel.orderFrontRegardless() }
     }
     private func updateEnvironment() {
         guard driftPanel != nil else { return }
@@ -886,7 +972,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         driftTimer = timer
     }
     private func tickDrift() {
-        guard model.driftPresented, !menuTracking, model.sessionActive, !fullScreenSuppressed else {
+        guard model.driftPresented, !menuTracking, model.sessionActive, !fullScreenSuppressed,
+              celebrationDisplay.show == nil else {
             driftMotion?.pause()
             return
         }
@@ -904,7 +991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func updateCompletionBubble() {
         guard completionPanel != nil else { return }
-        guard model.driftPresented, model.finished, ProcessInfo.processInfo.systemUptime < completionDeadline,
+        guard celebrationDisplay.show == nil, model.driftPresented, model.finished, ProcessInfo.processInfo.systemUptime < completionDeadline,
               let screen = currentDriftScreen else { completionPanel.orderOut(nil); return }
         let light = driftPanel.frame
         let y = light.maxY + 42 < screen.visibleFrame.maxY ? light.maxY + 6 : light.minY - 40
@@ -944,6 +1031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else { driftPanel?.orderOut(nil) }
         updateDriftTimer(visible: driftVisible)
         updateCompletionBubble()
+        updateCelebration()
         let count = model.tasks.count
         item.button?.title = model.demo ? " 示例" : (count > 0 ? " \(count)" : "")
         item.button?.toolTip = "小灯 · " + model.title + "\n点击查看详情，右键打开设置"
@@ -1012,6 +1100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add("远处山脊", #selector(toggleAuroraLandscape)).state = model.auroraLandscape ? .on : .off
         add("任务结束提示音", #selector(toggleSound)).state = model.soundEnabled ? .on : .off
         add("试听提示音", #selector(testSound))
+        add("任务结束烟花", #selector(toggleFireworks)).state = model.fireworksEnabled ? .on : .off
+        add("预览结束烟花", #selector(previewFireworks))
         menu.addItem(.separator())
         let parent = add("文案轮播间隔", nil)
         let submenu = NSMenu()
@@ -1156,6 +1246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.set(model.auroraLandscape, forKey: "auroraLandscape")
     }
     @objc func testSound() { model.playCompletionSound(force: true) }
+    @objc func toggleFireworks() {
+        model.fireworksEnabled.toggle()
+        if !model.preview { UserDefaults.standard.set(model.fireworksEnabled, forKey: "fireworksEnabled") }
+        updateCelebration()
+    }
+    @objc func previewFireworks() {
+        let event = TaskCompletion(id: UUID().uuidString, agent: "Codex", label: "烟花效果预览", at: Date().timeIntervalSince1970)
+        showCelebration(events: [event], demo: true, allEnded: !args.contains("--preview-fireworks-single"))
+    }
     @objc func systemAppearanceChanged() {
         model?.systemDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         if panel != nil { refresh() }
@@ -1166,6 +1265,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let url = Bundle.main.url(forResource: "使用说明", withExtension: "md") { NSWorkspace.shared.open(url) }
     }
     @objc func quit() { NSApp.terminate(nil) }
+    private func verifyFireworks(path: String) {
+        guard model.preview else { return }
+        var checks: [String: Bool] = [:]
+        let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        model.demo = false
+        model.soundEnabled = false
+        model.fireworksEnabled = true
+        model.completionGate = CompletionGate()
+        let tasks = Array(model.tasks.prefix(2))
+        let base = Date().timeIntervalSince1970
+        let history = TaskCompletion(id: "history", agent: "Codex", label: "历史任务", at: base - 1)
+        let first = TaskCompletion(id: "first", agent: "Codex", label: "示例任务一", at: base + 1)
+        let last = TaskCompletion(id: "last", agent: "Pi", label: "示例任务二", at: base + 5)
+        func receive(_ events: [TaskCompletion], at time: Double, remaining: [AgentTask]) {
+            let snapshot = Snapshot(schema: 1, updated: time, tasks: remaining,
+                adapters: [Adapter(agent: "Codex", status: "ready", detail: "验收示例"),
+                           Adapter(agent: "Pi", status: "ready", detail: "验收示例")], completions: events)
+            if var data = try? JSONEncoder().encode(snapshot) { data.append(10); model.receive(data) }
+        }
+        receive([history], at: base, remaining: tasks)
+        checks["startup_history_silent"] = celebrationDisplay.show == nil
+        receive([history, first], at: base + 2, remaining: Array(tasks.suffix(1)))
+        checks["individual_completion_with_sound_muted"] = celebrationDisplay.show?.bursts.count == 2 && celebrationPanel.isVisible
+        checks["remaining_tasks_are_real"] = celebrationDisplay.show?.remaining == 1 && !model.tasks.isEmpty
+        let began = celebrationDisplay.show?.began
+        receive([history, first], at: base + 4, remaining: Array(tasks.suffix(1)))
+        checks["duplicate_does_not_restart"] = celebrationDisplay.show?.completedCount == 1 && celebrationDisplay.show?.began == began
+        receive([first, last], at: base + 6, remaining: [])
+        checks["last_completion_upgrades_in_place"] = celebrationDisplay.show?.bursts.count == 6 &&
+            celebrationDisplay.show?.allEnded == true && celebrationDisplay.show?.began == began
+        checks["single_completion_surface"] = !completionPanel.isVisible
+        checks["click_through"] = celebrationPanel.ignoresMouseEvents
+        checks["cannot_take_focus"] = !celebrationPanel.canBecomeKey && !celebrationPanel.canBecomeMain
+        checks["transparent_overlay"] = !celebrationPanel.isOpaque && celebrationPanel.backgroundColor == .clear
+        checks["confined_to_one_visible_screen"] = NSScreen.screens.contains { $0.visibleFrame == celebrationPanel.frame }
+        celebrationDisplay.show = CompletionCelebration(events: [last], remaining: 0, waiting: 0, allEnded: true,
+                                                        at: ProcessInfo.processInfo.systemUptime, demo: true)
+        celebrationDisplay.previewAge = 1.95
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        if let view = celebrationPanel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: folder.appendingPathComponent("fireworks.png")) }
+        }
+        celebrationDisplay.previewAge = nil
+        model.animationsEnabled = false; updateCelebration()
+        checks["animations_off_is_static_toast"] = celebrationPanel.isVisible && !celebrationDisplay.moving
+        model.animationsEnabled = true; updateCelebration()
+        checks["system_reduce_motion_respected"] = celebrationDisplay.moving == !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        model.paused = true; refresh()
+        checks["pause_cancels_and_stops_timer"] = !celebrationPanel.isVisible && celebrationTimer == nil
+        model.paused = false; refresh()
+        checks["resume_does_not_replay"] = celebrationDisplay.show == nil
+        showCelebration(events: [last])
+        model.monitorHealthy = false; refresh()
+        checks["collector_disconnect_cancels"] = celebrationDisplay.show == nil && celebrationTimer == nil
+        model.monitorHealthy = true; refresh()
+        showCelebration(events: [last], demo: true, allEnded: true)
+        screenDidLock()
+        checks["lock_cancels"] = !celebrationPanel.isVisible && celebrationTimer == nil
+        screenDidUnlock()
+        showCelebration(events: [last], demo: true, allEnded: true)
+        fullScreenSuppressed = true; refresh()
+        checks["fullscreen_cancels"] = !celebrationPanel.isVisible && celebrationTimer == nil
+        fullScreenSuppressed = false; refresh()
+        showCelebration(events: [last], demo: true, allEnded: true)
+        model.fireworksEnabled = false; updateCelebration()
+        checks["disabled_cancels"] = !celebrationPanel.isVisible && celebrationTimer == nil
+        showCelebration(events: [last], demo: true, allEnded: true)
+        checks["disabled_cannot_start"] = celebrationDisplay.show == nil
+        model.fireworksEnabled = true
+        celebrationDisplay.show = CompletionCelebration(events: [last], remaining: 0, waiting: 0, allEnded: true,
+                                                        at: ProcessInfo.processInfo.systemUptime - 10)
+        updateCelebration()
+        checks["expiry_clears_show_and_timer"] = celebrationDisplay.show == nil && celebrationTimer == nil
+        // A disconnected collector must seed completion history without any new celebration.
+        receive([TaskCompletion(id: "reconnect", agent: "Codex", label: "重连历史", at: base + 29)], at: base + 30, remaining: [])
+        checks["reconnect_history_silent"] = celebrationDisplay.show == nil
+        checks["foreground_unchanged"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
+        let result: [String: Any] = ["passed": checks.values.allSatisfy { $0 }, "checks": checks]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
     private func verifyDrift(path: String) {
         // Native presentation checks run only with isolated, explicitly labeled demo tasks.
         guard model.preview else { return }
@@ -1257,7 +1441,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     func saveSnapshot(path: String) {
-        let target: NSView = model.driftPresented ? driftHosting : hosting
+        let target: NSView = (model.preview && args.contains("--preview-fireworks") ? celebrationPanel.contentView : nil) ??
+            (model.driftPresented ? driftHosting : hosting)
         target.layoutSubtreeIfNeeded()
         guard let rep = target.bitmapImageRepForCachingDisplay(in: target.bounds) else { return }
         target.cacheDisplay(in: target.bounds, to: rep)
@@ -1269,6 +1454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         frameTimer?.invalidate()
         driftTimer?.invalidate()
         environmentTimer?.invalidate()
+        celebrationTimer?.invalidate()
         model?.stop()
     }
 }
