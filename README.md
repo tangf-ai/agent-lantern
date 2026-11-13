@@ -6,7 +6,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 默认以 52 点「桌面游光」在屏幕边缘缓慢漂浮，点击穿透，鼠标靠近时让开。点击菜单栏小灯查看完整风车详情，再次点击返回漂浮；右键菜单栏打开设置，关闭「桌面漂浮」可恢复固定浮窗。
 
-右键菜单栏小灯 →「漂浮范围」→「屏幕上部」，可让游光只在菜单栏下方左右慢游，到两端自然折返。也可选择「屏幕四周」恢复绕屏漂浮；选择会自动保存，重启后继续生效。
+右键菜单栏小灯 →「漂浮范围」，可选「屏幕四周」「屏幕上部」「屏幕底部」「屏幕中部」。上部在菜单栏下方、底部在 Dock 上方、中部在屏幕中央高度左右慢游，到两端自然折返，鼠标避让也保持在所选高度。选择会自动保存，重启后继续生效。
 
 常驻游光（示例状态）：
 
@@ -42,7 +42,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.3-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.4-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -135,6 +135,8 @@ GitHub Actions 会执行上述检查、构建应用并验证本机签名。
 mkdir -p build.noindex/drift-check
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-drift "$PWD/build.noindex/drift-check/result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area top --verify-drift "$PWD/build.noindex/drift-check/top-result.json"
+build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area bottom --verify-drift "$PWD/build.noindex/drift-check/bottom-result.json"
+build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area middle --verify-drift "$PWD/build.noindex/drift-check/middle-result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-fireworks "$PWD/build.noindex/fireworks-check/result.json"
 ```
 

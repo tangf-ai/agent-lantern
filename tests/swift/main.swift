@@ -377,6 +377,56 @@ let topPosition = changedArea.center
 changedArea.setArea(.edges, screen: driftScreen)
 check(changedArea.center == topPosition, "Returning to all edges must preserve the current top position")
 print("Top drift: continuous turns, cursor escape, upper edge confinement, reduced motion, resume, area changes and display recovery: PASS")
+for area in [DriftArea.bottom, .middle] {
+    for screen in [driftScreen, secondaryScreen, CGRect(x: 100, y: -50, width: 320, height: 240)] {
+        var moving = DriftMotion(screen: screen, area: area)
+        let route = moving.route
+        let expectedY = area == .bottom ? screen.minY + 44 : screen.midY
+        check(route.point(at: 0) == CGPoint(x: route.bounds.maxX, y: expectedY),
+              "Bottom/middle routes must start at the right edge at the selected height")
+        check(route.point(at: route.bounds.width) == CGPoint(x: route.bounds.minX, y: expectedY),
+              "Bottom/middle routes must reach the left edge before turning")
+        for turn in [route.bounds.width, route.perimeter] {
+            check(abs(route.point(at: turn - 0.1).x - route.point(at: turn + 0.1).x) < 0.001,
+                  "Bottom/middle endpoint turns and wraps must remain continuous")
+        }
+        var previous = moving.center
+        for index in 0...25000 {
+            let mouse = index % 400 < 50 ? moving.center : nil
+            moving.advance(at: Double(index) / 30, mouse: mouse, working: true, enabled: true)
+            check(screen.contains(moving.frame), "Bottom/middle drift must keep the whole light inside the visible screen")
+            check(moving.center.y == expectedY, "Bottom/middle drift and avoidance must stay at the selected height")
+            check(hypot(moving.center.x - previous.x, moving.center.y - previous.y) <= 4.501,
+                  "Bottom/middle drift and cursor avoidance must never jump")
+            previous = moving.center
+        }
+        let beforeUpdate = moving.frame
+        moving.setScreen(screen)
+        check(moving.frame == beforeUpdate, "An unchanged display must preserve bottom/middle positions")
+        moving.setScreen(driftScreen)
+        check(moving.route.area == area && driftScreen.contains(moving.frame),
+              "Display recovery must retain the bottom/middle choice")
+    }
+    var moving = DriftMotion(screen: driftScreen)
+    moving.park(near: CGPoint(x: driftScreen.midX, y: driftScreen.maxY))
+    moving.setArea(area, screen: driftScreen)
+    let expectedY = area == .bottom ? driftScreen.minY + 44 : driftScreen.midY
+    check(moving.center == CGPoint(x: driftScreen.midX, y: expectedY),
+          "Switching to bottom/middle must preserve the horizontal position")
+    moving.park(near: CGPoint(x: driftScreen.midX, y: driftScreen.minY))
+    let mouse = moving.center
+    for i in 0...90 { moving.advance(at: Double(i) / 30, mouse: mouse, working: false, enabled: true) }
+    check(abs(moving.center.x - mouse.x) > 105, "Waiting bottom/middle lights must escape the cursor horizontally")
+    let pausedFrame = moving.frame
+    for i in 0...30 { moving.advance(at: 4 + Double(i) / 30, mouse: moving.center, working: true, enabled: false) }
+    check(moving.frame == pausedFrame, "Reduced motion must keep bottom/middle lights still")
+    moving.pause()
+    moving.advance(at: 10000, mouse: nil, working: true, enabled: true)
+    check(moving.frame == pausedFrame, "Resuming bottom/middle drift must not fast-forward")
+}
+check(DriftArea(rawValue: "bottom") == .bottom && DriftArea(rawValue: "middle") == .middle,
+      "Saved bottom/middle choices must round-trip")
+print("Bottom/middle drift: selected height, continuous turns, cursor avoidance, area switches, reduced motion and display recovery: PASS")
 check(DriftScreenPolicy.isFullScreen(window: driftScreen, screen: driftScreen), "Exact full-screen bounds must be detected")
 check(!DriftScreenPolicy.isFullScreen(window: driftScreen.insetBy(dx: 0, dy: 24), screen: driftScreen),
       "A maximized ordinary window with system margins must not suppress the light")
