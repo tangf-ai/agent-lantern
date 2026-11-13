@@ -16,6 +16,10 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ![风车详情与双向通信预览，图中为示例任务](docs/preview-detail-light.png)
 
+完成任务烟花（示例状态）：
+
+![完成任务后的烟花与提示浮层](docs/preview-fireworks.png)
+
 ## 功能
 
 - 有任务时出现，全部结束后停留 8 秒收起；也可以一直显示。
