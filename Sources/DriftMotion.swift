@@ -6,6 +6,7 @@ enum DriftArea: String, CaseIterable {
     case top
     case bottom
     case middle
+    case right
 
     var title: String {
         switch self {
@@ -13,6 +14,7 @@ enum DriftArea: String, CaseIterable {
         case .top: return "屏幕上部"
         case .bottom: return "屏幕底部"
         case .middle: return "屏幕中部"
+        case .right: return "屏幕右侧"
         }
     }
 }
@@ -22,15 +24,23 @@ struct DriftRoute {
     static let lightSize: CGFloat = 52
     let bounds: CGRect
     let area: DriftArea
-    var perimeter: CGFloat { max(1, (area == .edges ? bounds.width + bounds.height : bounds.width) * 2) }
+    var perimeter: CGFloat {
+        switch area {
+        case .edges: return max(1, (bounds.width + bounds.height) * 2)
+        case .right: return max(1, bounds.height * 2)
+        case .top, .bottom, .middle: return max(1, bounds.width * 2)
+        }
+    }
     var horizontalY: CGFloat? {
         switch area {
         case .edges: return nil
         case .top: return bounds.maxY
         case .bottom: return bounds.minY
         case .middle: return bounds.midY
+        case .right: return nil
         }
     }
+    var verticalX: CGFloat? { area == .right ? bounds.maxX : nil }
 
     init(screen: CGRect, area: DriftArea = .edges) {
         self.area = area
@@ -48,6 +58,10 @@ struct DriftRoute {
             let x = d <= bounds.width ? bounds.maxX - d : bounds.minX + d - bounds.width
             return CGPoint(x: min(max(x, bounds.minX), bounds.maxX), y: y)
         }
+        if let x = verticalX {
+            let y = d <= bounds.height ? bounds.maxY - d : bounds.minY + d - bounds.height
+            return CGPoint(x: x, y: min(max(y, bounds.minY), bounds.maxY))
+        }
         if d <= bounds.height { return CGPoint(x: bounds.maxX, y: bounds.maxY - d) }
         d -= bounds.height
         if d <= bounds.width { return CGPoint(x: bounds.maxX - d, y: bounds.minY) }
@@ -61,6 +75,7 @@ struct DriftRoute {
         let x = min(max(point.x, bounds.minX), bounds.maxX)
         let y = min(max(point.y, bounds.minY), bounds.maxY)
         if horizontalY != nil { return bounds.maxX - x }
+        if verticalX != nil { return bounds.maxY - y }
         let candidates = [bounds.maxY - y, bounds.height + bounds.maxX - x,
                           bounds.height + bounds.width + y - bounds.minY,
                           bounds.height * 2 + bounds.width + x - bounds.minX]

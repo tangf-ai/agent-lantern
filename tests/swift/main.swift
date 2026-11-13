@@ -427,6 +427,51 @@ for area in [DriftArea.bottom, .middle] {
 check(DriftArea(rawValue: "bottom") == .bottom && DriftArea(rawValue: "middle") == .middle,
       "Saved bottom/middle choices must round-trip")
 print("Bottom/middle drift: selected height, continuous turns, cursor avoidance, area switches, reduced motion and display recovery: PASS")
+let rightRoute = DriftRoute(screen: driftScreen, area: .right)
+let rightHeight = rightRoute.bounds.height
+check(rightRoute.point(at: 0) == CGPoint(x: rightRoute.bounds.maxX, y: rightRoute.bounds.maxY),
+      "Right drift must start at the top of the right edge")
+check(rightRoute.point(at: rightHeight) == CGPoint(x: rightRoute.bounds.maxX, y: rightRoute.bounds.minY),
+      "Right drift must reach the bottom of the right edge before turning around")
+check(abs(rightRoute.point(at: rightHeight - 0.1).y - rightRoute.point(at: rightHeight + 0.1).y) < 0.001 &&
+      abs(rightRoute.point(at: rightRoute.perimeter - 0.1).y - rightRoute.point(at: rightRoute.perimeter + 0.1).y) < 0.001,
+      "Right drift endpoint turns and wraps must remain continuous")
+for screen in [driftScreen, secondaryScreen, CGRect(x: 100, y: -50, width: 320, height: 240)] {
+    var moving = DriftMotion(screen: screen, area: .right)
+    var previous = moving.center
+    let expectedX = moving.route.bounds.maxX
+    for index in 0...25000 {
+        let mouse = index % 400 < 50 ? moving.center : nil
+        moving.advance(at: Double(index) / 30, mouse: mouse, working: true, enabled: true)
+        check(screen.contains(moving.frame), "Right drift must keep the whole light inside the visible screen")
+        check(moving.center.x == expectedX, "Right drift and avoidance must stay on the right edge")
+        check(hypot(moving.center.x - previous.x, moving.center.y - previous.y) <= 4.501,
+              "Right drift and cursor avoidance must never jump")
+        previous = moving.center
+    }
+    let beforeUpdate = moving.frame
+    moving.setScreen(screen)
+    check(moving.frame == beforeUpdate, "An unchanged display must preserve right-side position")
+    moving.setScreen(driftScreen)
+    check(moving.route.area == .right && driftScreen.contains(moving.frame),
+          "Display recovery must retain the right-side choice")
+}
+var rightDrift = DriftMotion(screen: driftScreen)
+rightDrift.park(near: CGPoint(x: driftScreen.maxX, y: driftScreen.midY))
+rightDrift.setArea(.right, screen: driftScreen)
+check(rightDrift.center.y == driftScreen.midY && rightDrift.center.x == rightDrift.route.bounds.maxX,
+      "Switching to right drift must preserve the vertical position")
+let rightMouse = rightDrift.center
+for i in 0...90 { rightDrift.advance(at: Double(i) / 30, mouse: rightMouse, working: false, enabled: true) }
+check(abs(rightDrift.center.y - rightMouse.y) > 105, "Waiting right-side lights must escape the cursor vertically")
+let rightPausedFrame = rightDrift.frame
+for i in 0...30 { rightDrift.advance(at: 4 + Double(i) / 30, mouse: rightDrift.center, working: true, enabled: false) }
+check(rightDrift.frame == rightPausedFrame, "Reduced motion must keep the right-side light still")
+rightDrift.pause()
+rightDrift.advance(at: 10000, mouse: nil, working: true, enabled: true)
+check(rightDrift.frame == rightPausedFrame, "Resuming right drift must not fast-forward")
+check(DriftArea(rawValue: "right") == .right, "Saved right-side choice must round-trip")
+print("Right drift: vertical route, continuous turns, cursor avoidance, area switches, reduced motion and display recovery: PASS")
 check(DriftScreenPolicy.isFullScreen(window: driftScreen, screen: driftScreen), "Exact full-screen bounds must be detected")
 check(!DriftScreenPolicy.isFullScreen(window: driftScreen.insetBy(dx: 0, dy: 24), screen: driftScreen),
       "A maximized ordinary window with system margins must not suppress the light")

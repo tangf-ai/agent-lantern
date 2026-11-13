@@ -6,7 +6,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 默认以 52 点「桌面游光」在屏幕边缘缓慢漂浮，点击穿透，鼠标靠近时让开。点击菜单栏小灯查看完整风车详情，再次点击返回漂浮；右键菜单栏打开设置，关闭「桌面漂浮」可恢复固定浮窗。
 
-右键菜单栏小灯 →「漂浮范围」，可选「屏幕四周」「屏幕上部」「屏幕底部」「屏幕中部」。上部在菜单栏下方、底部在 Dock 上方、中部在屏幕中央高度左右慢游，到两端自然折返，鼠标避让也保持在所选高度。选择会自动保存，重启后继续生效。
+右键菜单栏小灯 →「漂浮范围」，可选「屏幕四周」「屏幕上部」「屏幕底部」「屏幕中部」「屏幕右侧」。上部在菜单栏下方、底部在 Dock 上方、中部在屏幕中央高度左右慢游，右侧沿屏幕右边上下慢游，到两端自然折返，鼠标避让也保持在所选路线。选择会自动保存，重启后继续生效。
 
 常驻游光（示例状态）：
 
@@ -141,6 +141,7 @@ build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --pre
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area top --verify-drift "$PWD/build.noindex/drift-check/top-result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area bottom --verify-drift "$PWD/build.noindex/drift-check/bottom-result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area middle --verify-drift "$PWD/build.noindex/drift-check/middle-result.json"
+build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --preview-drift-area right --verify-drift "$PWD/build.noindex/drift-check/right-result.json"
 build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --preview-drift --verify-fireworks "$PWD/build.noindex/fireworks-check/result.json"
 ```
 

@@ -1430,8 +1430,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
         checks["requested_drift_area"] = driftMotion?.route.area == driftArea
-        if let motion = driftMotion, let y = motion.route.horizontalY {
-            checks["\(driftArea.rawValue)_route_position"] = motion.center.y == y
+        if let motion = driftMotion {
+            if let y = motion.route.horizontalY {
+                checks["\(driftArea.rawValue)_route_position"] = motion.center.y == y
+            } else if let x = motion.route.verticalX {
+                checks["\(driftArea.rawValue)_route_position"] = motion.center.x == x
+            }
         }
         checks["drift_size_52"] = driftPanel.frame.size == CGSize(width: 52, height: 52)
         checks["click_through"] = driftPanel.ignoresMouseEvents && completionPanel.ignoresMouseEvents
@@ -1489,8 +1493,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 areaMenu?.items.filter({ $0.state == .on }).count == 1
             checks["area_switch_\(area.rawValue)"] = driftMotion?.route.area == area &&
                 currentDriftScreen?.visibleFrame.contains(driftPanel.frame) == true
-            if let motion = driftMotion, let y = motion.route.horizontalY {
-                checks["area_switch_height_\(area.rawValue)"] = motion.center.y == y
+            if let motion = driftMotion {
+                if let y = motion.route.horizontalY {
+                    checks["area_switch_height_\(area.rawValue)"] = motion.center.y == y
+                } else if let x = motion.route.verticalX {
+                    checks["area_switch_position_\(area.rawValue)"] = motion.center.x == x
+                }
             }
         }
         let restoreArea = NSMenuItem()
