@@ -23,6 +23,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 ## 功能
 
 - 有任务时出现，全部结束后停留 8 秒收起；也可以一直显示。
+- 默认开启「工作时防止电脑休眠」：有已确认运行的真实任务时阻止电脑自动休眠，屏幕仍可熄灭和锁屏；全部结束、只剩等待确认、采集失联或退出小灯时自动解除。菜单可关闭并记住选择。
 - 桌面游光沿屏幕可用区域边缘慢游，避开菜单栏与 Dock；等待确认时停靠，全屏应用前台时隐藏，减少动态效果时静止。
 - 详情面板可拖动、不抢键盘焦点，点击状态行展开各个任务和接入状态。
 - 详情面板收起任务列表时宽 278 点；展开后恢复 334 点宽，查看完整任务及原理说明。
@@ -46,7 +47,7 @@ Apple Silicon macOS 14+ 原生 AppKit / SwiftUI 浮窗。显示本机 Codex、Pi
 
 ## 下载与安装
 
-从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.11.5-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
+从 [Releases](https://github.com/tangf-ai/agent-lantern/releases/latest) 下载 `agent-lantern-0.12.0-mac-arm64.zip`，解压后将应用放进 `/Applications` 并打开。左键菜单栏星光图标查看详情，右键图标或点击详情右上角「…」打开设置。
 
 Pi 需要独立扩展。使用下面的源码安装方式会一起安装扩展；仅下载应用时，可以从应用包的 `Contents/Resources/agent-lantern.ts` 取出该文件，放到 `~/.pi/agent/extensions/`。新 Pi 会话自动加载，现有终端会话运行 `/reload`。
 
@@ -129,6 +130,8 @@ node --experimental-strip-types tests/test_pi_metrics.mjs
 mkdir -p build.noindex
 swiftc Sources/CompletionGate.swift Sources/CompletionCelebration.swift Sources/MessageFlow.swift Sources/TransferPlayback.swift Sources/MechanismMotion.swift Sources/AnimationTempo.swift Sources/WindMotion.swift Sources/WindowPlacement.swift Sources/DriftMotion.swift tests/swift/main.swift -o build.noindex/completion-gate-test
 build.noindex/completion-gate-test
+swiftc -framework IOKit Sources/KeepAwake.swift tests/keep-awake/main.swift -o build.noindex/keep-awake-test
+build.noindex/keep-awake-test
 ```
 
 GitHub Actions 会执行上述检查、构建应用并验证本机签名。
@@ -148,6 +151,7 @@ build.noindex/智能体工作灯.app/Contents/MacOS/AgentLantern --preview --pre
 ## 源码
 
 - `Sources/main.swift`：原生浮窗、菜单栏、轮播、状态与收起逻辑。
+- `Sources/KeepAwake.swift`：真实任务防休眠策略、快照过期保护和 macOS 原生电源断言；不修改系统休眠设置。
 - `Sources/CompletionGate.swift`：完成事件去重、启动及重连静音。
 - `Sources/CompletionCelebration.swift` / `Sources/CelebrationView.swift`：单项烟花、全部收工谢幕、连续完成合并与原生透明绘制；仅由新鲜完成事件触发，不把任务消失当成成功。
 - `Sources/MessageFlow.swift` / `Sources/MessageFlowView.swift`：有时效限制的阶段解释与双向通信动画。

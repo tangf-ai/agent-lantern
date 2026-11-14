@@ -21,8 +21,8 @@ info = {
     "CFBundleDisplayName": "智能体工作灯",
     "CFBundleExecutable": "AgentLantern",
     "CFBundlePackageType": "APPL",
-    "CFBundleShortVersionString": "0.11.5",
-    "CFBundleVersion": "27",
+    "CFBundleShortVersionString": "0.12.0",
+    "CFBundleVersion": "28",
     "LSMinimumSystemVersion": "14.0",
     "LSUIElement": True,
     "NSHighResolutionCapable": True,
@@ -34,7 +34,8 @@ iconset = ROOT / "build.noindex/AppIcon.iconset"
 subprocess.run(["/usr/bin/swift", str(ROOT / "make-icon.swift"), str(iconset)], check=True)
 subprocess.run(["/usr/bin/iconutil", "-c", "icns", str(iconset), "-o", str(CONTENTS / "Resources/AppIcon.icns")], check=True)
 subprocess.run(["/usr/bin/swiftc", "-swift-version", "5", "-O", "-target", "arm64-apple-macosx14.0",
-                "-framework", "AppKit", "-framework", "SwiftUI", str(ROOT / "Sources/CompletionGate.swift"),
+                "-framework", "AppKit", "-framework", "SwiftUI", "-framework", "IOKit",
+                str(ROOT / "Sources/KeepAwake.swift"), str(ROOT / "Sources/CompletionGate.swift"),
                 str(ROOT / "Sources/CompletionCelebration.swift"), str(ROOT / "Sources/CelebrationView.swift"),
                 str(ROOT / "Sources/WorkingLight.swift"), str(ROOT / "Sources/MessageFlow.swift"), str(ROOT / "Sources/TransferPlayback.swift"),
                 str(ROOT / "Sources/MessageFlowView.swift"), str(ROOT / "Sources/MechanismScene.swift"), str(ROOT / "Sources/MechanismMotion.swift"), str(ROOT / "Sources/AnimationTempo.swift"), str(ROOT / "Sources/WindMotion.swift"),

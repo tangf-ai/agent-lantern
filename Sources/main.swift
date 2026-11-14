@@ -79,6 +79,7 @@ final class Model: ObservableObject {
     @Published var systemDark = false
     @Published var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
     @Published var fireworksEnabled = UserDefaults.standard.object(forKey: "fireworksEnabled") as? Bool ?? true
+    @Published var keepAwakeEnabled = UserDefaults.standard.object(forKey: "keepAwakeEnabled") as? Bool ?? true
     @Published var animationsEnabled = UserDefaults.standard.object(forKey: "animationsEnabled") as? Bool ?? true
     @Published var meteorEnabled = UserDefaults.standard.object(forKey: "meteorEnabled") as? Bool ?? true
     @Published var meteorStrength = min(0.6, max(0.15, UserDefaults.standard.object(forKey: "meteorStrength") as? Double ?? 0.25))
@@ -114,6 +115,7 @@ final class Model: ObservableObject {
     var animationActivity = AnimationActivityWindow()
     var lastFlowTask: AgentTask?
     let completionSound = NSSound(named: "Glass")
+    let keepAwake = KeepAwakeController()
     let preview: Bool
 
     init(preview: Bool) {
@@ -131,19 +133,37 @@ final class Model: ObservableObject {
             toggleDemo()
         } else {
             startCollector()
-            healthTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
                 guard let self else { return }
-                if Date().timeIntervalSince(self.lastUpdate) > 15 {
+                if Date().timeIntervalSince(self.lastUpdate) > KeepAwakePolicy.freshness {
                     self.monitorHealthy = false
                     self.tasks = []
                     self.finished = false
                     self.onChange?()
                 }
             }
+            // Expire stale task state even while a settings menu is tracking.
+            RunLoop.main.add(timer, forMode: .common)
+            healthTimer = timer
         }
     }
 
     var running: Int { tasks.filter { $0.state == "running" }.count }
+    func updateKeepAwake() {
+        keepAwake.update(shouldPreventSleep: !shuttingDown && KeepAwakePolicy.shouldPreventSleep(
+            enabled: keepAwakeEnabled, running: running, monitorHealthy: monitorHealthy,
+            isPreview: preview || demo, snapshotUpdated: lastSnapshot?.updated, lastReceived: lastUpdate))
+    }
+    var keepAwakeStatus: String {
+        if let error = keepAwake.lastError {
+            return keepAwake.isActive ? "防休眠解除失败（\(error)），将重试" : "防休眠未生效（\(error)），将重试"
+        }
+        if keepAwake.isActive { return "正在防止电脑自动休眠 · 屏幕可熄灭" }
+        if !keepAwakeEnabled { return "防休眠已关闭" }
+        if preview || demo { return "示例预览不启用防休眠" }
+        if !monitorHealthy { return "任务状态未连接 · 未启用防休眠" }
+        return "防休眠待命 · 有真实运行任务时生效"
+    }
     var animationTempo: AnimationTempo {
         adaptiveAnimations ? .resolve(running: running, recentActivities: recentAnimationActivities) : .calm
     }
@@ -364,6 +384,7 @@ final class Model: ObservableObject {
     }
     func stop() {
         shuttingDown = true
+        keepAwake.stop()
         quoteTimer?.invalidate()
         healthTimer?.invalidate()
         hideWork?.cancel()
@@ -951,6 +972,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "reduceMotion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             "sessionActive": model.sessionActive, "paused": model.paused, "demo": model.demo,
             "monitorHealthy": model.monitorHealthy, "fullscreen": fullScreenSuppressed,
+            "keepAwakeEnabled": model.keepAwakeEnabled, "keepAwakeActive": model.keepAwake.isActive,
+            "keepAwakeError": model.keepAwake.lastError.map { Int($0) } as Any? ?? NSNull(),
+            "runningTasks": model.running,
             "tasks": model.tasks.count, "driftFrame": NSStringFromRect(driftPanel.frame),
             "playbackVisible": celebrationPanel.isVisible, "render": celebrationDisplay.renderProbe.snapshot,
             "records": completionDiagnostics]
@@ -1062,6 +1086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return WindowPlacement.visibleFrame(frame, screens: screens.map(\.visibleFrame), fallbackIndex: fallback)
     }
     func refresh() {
+        model?.updateKeepAwake()
         guard panel != nil else { return }
         if !model.shouldShow { detailOpen = false }
         let allowed = model.shouldShow && model.sessionActive
@@ -1090,7 +1115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateCelebration()
         let count = model.tasks.count
         item.button?.title = model.demo ? " 示例" : (count > 0 ? " \(count)" : "")
-        item.button?.toolTip = "小灯 · " + model.title + "\n点击查看详情，右键打开设置"
+        item.button?.toolTip = "小灯 · " + model.title + "\n" + model.keepAwakeStatus + "\n点击查看详情，右键打开设置"
     }
     func windowDidMove(_ notification: Notification) {
         guard !changingFrame else { return }
@@ -1119,6 +1144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add("空闲时也显示", #selector(toggleIdle)).state = model.showIdle ? .on : .off
         add(model.paused ? "恢复显示" : "暂停显示", #selector(togglePaused))
         add(model.demo ? "退出预览" : "预览浮窗（示例）", #selector(togglePreview))
+        menu.addItem(.separator())
+        add("工作时防止电脑休眠", #selector(toggleKeepAwake)).state = model.keepAwakeEnabled ? .on : .off
+        add(model.keepAwakeStatus, nil).isEnabled = false
         menu.addItem(.separator())
         let themeParent = add("主题", nil)
         let themes = NSMenu()
@@ -1260,6 +1288,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh()
     }
     @objc func togglePaused() { model.paused.toggle(); refresh() }
+    @objc func toggleKeepAwake() {
+        model.keepAwakeEnabled.toggle()
+        if !model.preview { UserDefaults.standard.set(model.keepAwakeEnabled, forKey: "keepAwakeEnabled") }
+        refresh()
+    }
     @objc func togglePreview() { model.toggleDemo() }
     @objc func changeTheme(_ entry: NSMenuItem) {
         guard ThemeChoice.allCases.indices.contains(entry.tag) else { return }
@@ -1504,6 +1537,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let restoreArea = NSMenuItem()
         restoreArea.tag = DriftArea.allCases.firstIndex(of: originalArea) ?? 0
         changeDriftArea(restoreArea)
+        let originalKeepAwake = model.keepAwakeEnabled
+        let savedKeepAwake = UserDefaults.standard.object(forKey: "keepAwakeEnabled") as? Bool
+        rebuildMenu()
+        checks["keep_awake_menu_matches_setting"] = menu.items.first(where: { $0.title == "工作时防止电脑休眠" })?.state ==
+            (originalKeepAwake ? .on : .off)
+        toggleKeepAwake()
+        rebuildMenu()
+        checks["keep_awake_switch_updates_menu"] = model.keepAwakeEnabled != originalKeepAwake &&
+            menu.items.first(where: { $0.title == "工作时防止电脑休眠" })?.state == (model.keepAwakeEnabled ? .on : .off)
+        toggleKeepAwake()
+        checks["keep_awake_preview_preserves_preference"] =
+            (UserDefaults.standard.object(forKey: "keepAwakeEnabled") as? Bool) == savedKeepAwake
+        model.demo = false; refresh()
+        checks["keep_awake_preview_never_asserts"] = !model.keepAwake.isActive && model.keepAwake.lastError == nil
+        model.demo = true; refresh()
         checks["foreground_unchanged"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
         model.tasks = []; model.finished = true; refresh()
         checks["completion_bubble"] = completionPanel.isVisible && completionPanel.ignoresMouseEvents
